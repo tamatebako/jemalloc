@@ -1,0 +1,447 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main, dev]
+  pull_request:
+    branches: [master, main, dev]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Level 1: Basic platform builds
+  basic-platforms:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux essential
+          - name: Linux x64 gcc
+            os: ubuntu-24.04
+            cc: gcc
+            cxx: g++
+          - name: Linux x64 clang
+            os: ubuntu-24.04
+            cc: clang
+            cxx: clang++
+          - name: Linux ARM64 gcc
+            os: ubuntu-24.04-arm
+            cc: gcc
+            cxx: g++
+
+          # Windows
+          - name: Windows x64 MSVC
+            os: windows-2022
+            cc: cl
+            cxx: cl
+          - name: Windows x64 MinGW
+            os: windows-2022
+            cc: gcc
+            cxx: g++
+            mingw: MINGW64
+          - name: Windows ARM64 MSVC
+            os: windows-11-arm
+            cc: cl
+            cxx: cl
+
+          # macOS
+          - name: macOS Intel
+            os: macos-13
+            cc: clang
+            cxx: clang++
+          - name: macOS ARM64
+            os: macos-14
+            cc: clang
+            cxx: clang++
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Linux setup
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf
+
+      # Windows MSVC setup
+      - name: Setup MSVC
+        if: runner.os == 'Windows' && matrix.cc == 'cl'
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Setup MSYS2 for MSVC
+        if: runner.os == 'Windows' && matrix.cc == 'cl'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: autotools make
+
+      # Windows MinGW setup
+      - name: Setup MSYS2 MinGW
+        if: runner.os == 'Windows' && matrix.mingw != ''
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.mingw }}
+          update: true
+          install: >-
+            autotools
+            git
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-make
+
+      # macOS setup
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: brew install autoconf
+
+      # Build - Linux/macOS
+      - name: Build and test (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          autoconf
+          export CC="${{ matrix.cc }}"
+          export CXX="${{ matrix.cxx }}"
+
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            if [[ "${{ matrix.cc }}" == clang* ]]; then
+              export EXTRA_CFLAGS="-Werror -Wno-array-bounds -Wno-unknown-warning-option -Wno-ignored-attributes"
+            else
+              export EXTRA_CFLAGS="-Werror -Wno-array-bounds"
+            fi
+          elif [ "${{ runner.os }}" = "macOS" ]; then
+            export EXTRA_CFLAGS="-Werror -Wno-array-bounds -Wno-unknown-warning-option -Wno-ignored-attributes -Wno-deprecated-declarations"
+          fi
+
+          ./configure
+          make -j$(nproc || sysctl -n hw.ncpu)
+          make -j$(nproc || sysctl -n hw.ncpu) tests
+          make check
+
+      # Build - Windows
+      - name: Build and test (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          autoconf
+          if [ "${{ matrix.cc }}" = "gcc" ]; then
+            export EXTRA_CFLAGS="-fcommon"
+          fi
+          ./configure
+          make -j$(nproc)
+          make -j$(nproc) tests
+          make check
+
+  # FreeBSD
+  freebsd:
+    name: FreeBSD ${{ matrix.version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ['14.1', '15.0']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Test on FreeBSD
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: ${{ matrix.version }}
+          usesh: true
+          prepare: pkg install -y autoconf gmake gcc
+          run: |
+            set -e
+            autoconf
+            ./configure --with-jemalloc-prefix=ci_
+            JFLAG=$(sysctl -n kern.smp.cpus)
+            gmake -j${JFLAG}
+            gmake -j${JFLAG} tests
+            gmake check
+
+  # Level 2: Comprehensive configure flag testing (runs after Linux succeeds)
+  linux-configure-flags:
+    name: Linux flags - ${{ matrix.compiler }} ${{ matrix.flags }}
+    runs-on: ubuntu-24.04
+    needs: basic-platforms
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        flags:
+          # Single flag options
+          - --enable-debug
+          - --enable-prof
+          - --disable-stats
+          - --disable-libdl
+          - --enable-opt-safety-checks
+          - --with-lg-page=16
+          - --enable-prof --enable-prof-frameptr
+          - --with-malloc-conf=tcache:false
+          - --with-malloc-conf=dss:primary
+          - --with-malloc-conf=percpu_arena:percpu
+          - --with-malloc-conf=background_thread:true
+          # Two-option combinations with --enable-debug
+          - --enable-debug --enable-prof
+          - --enable-debug --disable-stats
+          - --enable-debug --disable-libdl
+          - --enable-debug --enable-opt-safety-checks
+          - --enable-debug --with-lg-page=16
+          - --enable-debug --enable-prof --enable-prof-frameptr
+          - --enable-debug --with-malloc-conf=tcache:false
+          - --enable-debug --with-malloc-conf=dss:primary
+          - --enable-debug --with-malloc-conf=percpu_arena:percpu
+          - --enable-debug --with-malloc-conf=background_thread:true
+          # Two-option combinations with --enable-prof
+          - --enable-prof --disable-stats
+          - --enable-prof --disable-libdl
+          - --enable-prof --enable-opt-safety-checks
+          - --enable-prof --with-lg-page=16
+          - --enable-prof --with-malloc-conf=tcache:false
+          - --enable-prof --with-malloc-conf=dss:primary
+          - --enable-prof --with-malloc-conf=percpu_arena:percpu
+          - --enable-prof --with-malloc-conf=background_thread:true
+          # Two-option combinations with --disable-stats
+          - --disable-stats --disable-libdl
+          - --disable-stats --enable-opt-safety-checks
+          - --disable-stats --with-lg-page=16
+          - --disable-stats --enable-prof --enable-prof-frameptr
+          - --disable-stats --with-malloc-conf=tcache:false
+          - --disable-stats --with-malloc-conf=dss:primary
+          - --disable-stats --with-malloc-conf=percpu_arena:percpu
+          - --disable-stats --with-malloc-conf=background_thread:true
+          # Two-option combinations with --disable-libdl
+          - --disable-libdl --enable-opt-safety-checks
+          - --disable-libdl --with-lg-page=16
+          - --disable-libdl --enable-prof --enable-prof-frameptr
+          - --disable-libdl --with-malloc-conf=tcache:false
+          - --disable-libdl --with-malloc-conf=dss:primary
+          - --disable-libdl --with-malloc-conf=percpu_arena:percpu
+          - --disable-libdl --with-malloc-conf=background_thread:true
+          # Two-option combinations with --enable-opt-safety-checks
+          - --enable-opt-safety-checks --with-lg-page=16
+          - --enable-opt-safety-checks --enable-prof --enable-prof-frameptr
+          - --enable-opt-safety-checks --with-malloc-conf=tcache:false
+          - --enable-opt-safety-checks --with-malloc-conf=dss:primary
+          - --enable-opt-safety-checks --with-malloc-conf=percpu_arena:percpu
+          - --enable-opt-safety-checks --with-malloc-conf=background_thread:true
+          # Two-option combinations with --with-lg-page=16
+          - --with-lg-page=16 --enable-prof --enable-prof-frameptr
+          - --with-lg-page=16 --with-malloc-conf=tcache:false
+          - --with-lg-page=16 --with-malloc-conf=dss:primary
+          - --with-lg-page=16 --with-malloc-conf=percpu_arena:percpu
+          - --with-lg-page=16 --with-malloc-conf=background_thread:true
+          # Two-option combinations with --enable-prof --enable-prof-frameptr
+          - --enable-prof --enable-prof-frameptr --with-malloc-conf=tcache:false
+          - --enable-prof --enable-prof-frameptr --with-malloc-conf=dss:primary
+          - --enable-prof --enable-prof-frameptr --with-malloc-conf=percpu_arena:percpu
+          - --enable-prof --enable-prof-frameptr --with-malloc-conf=background_thread:true
+          # Multiple malloc-conf options
+          - --with-malloc-conf=tcache:false,dss:primary
+          - --with-malloc-conf=tcache:false,percpu_arena:percpu
+          - --with-malloc-conf=tcache:false,background_thread:true
+          - --with-malloc-conf=dss:primary,percpu_arena:percpu
+          - --with-malloc-conf=dss:primary,background_thread:true
+          - --with-malloc-conf=percpu_arena:percpu,background_thread:true
+        exclude:
+          # Clang doesn't need all the same combinations, reduce matrix
+          - compiler: clang
+            flags: --enable-debug --disable-stats
+          - compiler: clang
+            flags: --enable-debug --disable-libdl
+          - compiler: clang
+            flags: --enable-debug --enable-opt-safety-checks
+          - compiler: clang
+            flags: --enable-debug --with-malloc-conf=dss:primary
+          - compiler: clang
+            flags: --enable-debug --with-malloc-conf=percpu_arena:percpu
+          - compiler: clang
+            flags: --enable-prof --disable-stats
+          - compiler: clang
+            flags: --enable-prof --disable-libdl
+          - compiler: clang
+            flags: --enable-prof --enable-opt-safety-checks
+          - compiler: clang
+            flags: --enable-prof --with-malloc-conf=dss:primary
+          - compiler: clang
+            flags: --enable-prof --with-malloc-conf=percpu_arena:percpu
+          - compiler: clang
+            flags: --disable-stats --disable-libdl
+          - compiler: clang
+            flags: --disable-stats --enable-opt-safety-checks
+          - compiler: clang
+            flags: --disable-stats --with-lg-page=16
+          - compiler: clang
+            flags: --disable-stats --enable-prof --enable-prof-frameptr
+          - compiler: clang
+            flags: --disable-stats --with-malloc-conf=tcache:false
+          - compiler: clang
+            flags: --disable-stats --with-malloc-conf=dss:primary
+          - compiler: clang
+            flags: --disable-stats --with-malloc-conf=percpu_arena:percpu
+          - compiler: clang
+            flags: --disable-stats --with-malloc-conf=background_thread:true
+          - compiler: clang
+            flags: --disable-libdl --enable-opt-safety-checks
+          - compiler: clang
+            flags: --disable-libdl --with-lg-page=16
+          - compiler: clang
+            flags: --disable-libdl --enable-prof --enable-prof-frameptr
+          - compiler: clang
+            flags: --disable-libdl --with-malloc-conf=tcache:false
+          - compiler: clang
+            flags: --disable-libdl --with-malloc-conf=dss:primary
+          - compiler: clang
+            flags: --disable-libdl --with-malloc-conf=percpu_arena:percpu
+          - compiler: clang
+            flags: --disable-libdl --with-malloc-conf=background_thread:true
+          - compiler: clang
+            flags: --enable-opt-safety-checks --with-lg-page=16
+          - compiler: clang
+            flags: --enable-opt-safety-checks --enable-prof --enable-prof-frameptr
+          - compiler: clang
+            flags: --enable-opt-safety-checks --with-malloc-conf=tcache:false
+          - compiler: clang
+            flags: --enable-opt-safety-checks --with-malloc-conf=dss:primary
+          - compiler: clang
+            flags: --enable-opt-safety-checks --with-malloc-conf=percpu_arena:percpu
+          - compiler: clang
+            flags: --enable-opt-safety-checks --with-malloc-conf=background_thread:true
+          - compiler: clang
+            flags: --with-lg-page=16 --enable-prof --enable-prof-frameptr
+          - compiler: clang
+            flags: --with-lg-page=16 --with-malloc-conf=tcache:false
+          - compiler: clang
+            flags: --with-lg-page=16 --with-malloc-conf=dss:primary
+          - compiler: clang
+            flags: --with-lg-page=16 --with-malloc-conf=percpu_arena:percpu
+          - compiler: clang
+            flags: --with-lg-page=16 --with-malloc-conf=background_thread:true
+          - compiler: clang
+            flags: --enable-prof --enable-prof-frameptr --with-malloc-conf=tcache:false
+          - compiler: clang
+            flags: --enable-prof --enable-prof-frameptr --with-malloc-conf=dss:primary
+          - compiler: clang
+            flags: --enable-prof --enable-prof-frameptr --with-malloc-conf=percpu_arena:percpu
+          - compiler: clang
+            flags: --enable-prof --enable-prof-frameptr --with-malloc-conf=background_thread:true
+          - compiler: clang
+            flags: --with-malloc-conf=tcache:false,dss:primary
+          - compiler: clang
+            flags: --with-malloc-conf=tcache:false,percpu_arena:percpu
+          - compiler: clang
+            flags: --with-malloc-conf=tcache:false,background_thread:true
+          - compiler: clang
+            flags: --with-malloc-conf=dss:primary,percpu_arena:percpu
+          - compiler: clang
+            flags: --with-malloc-conf=dss:primary,background_thread:true
+          - compiler: clang
+            flags: --with-malloc-conf=percpu_arena:percpu,background_thread:true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf
+
+      - name: Build and test
+        run: |
+          autoconf
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            export CC=clang
+            export CXX=clang++
+            export EXTRA_CFLAGS="-Werror -Wno-array-bounds -Wno-unknown-warning-option -Wno-ignored-attributes"
+          else
+            export CC=gcc
+            export CXX=g++
+            export EXTRA_CFLAGS="-Werror -Wno-array-bounds"
+          fi
+
+          ./configure ${{ matrix.flags }}
+          make -j$(nproc)
+          make -j$(nproc) tests
+          make check
+
+  # Level 2: 32-bit builds (after Linux succeeds)
+  linux-32bit:
+    name: Linux 32-bit - gcc ${{ matrix.flags }}
+    runs-on: ubuntu-24.04
+    needs: basic-platforms
+    strategy:
+      fail-fast: false
+      matrix:
+        flags:
+          - ''
+          - --enable-debug
+          - --enable-prof
+          - --disable-stats
+          - --disable-libdl
+          - --enable-opt-safety-checks
+          - --with-lg-page=16
+          - --enable-prof --enable-prof-frameptr
+          - --with-malloc-conf=tcache:false
+          - --with-malloc-conf=dss:primary
+          - --with-malloc-conf=percpu_arena:percpu
+          - --with-malloc-conf=background_thread:true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf gcc-multilib g++-multilib
+
+      - name: Build and test
+        run: |
+          autoconf
+          export EXTRA_CFLAGS="-Werror -Wno-array-bounds"
+          ./configure CC="gcc -m32" CXX="g++ -m32" ${{ matrix.flags }}
+          make -j$(nproc)
+          make -j$(nproc) tests
+          make check
+
+  # Special builds
+  special-builds:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    needs: basic-platforms
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Development build
+            flags: --enable-debug --disable-cache-oblivious --enable-stats --enable-log --enable-prof
+          - name: Experimental smallocx
+            flags: --enable-debug --enable-experimental-smallocx --enable-stats --enable-prof
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf
+
+      - name: Build and test
+        run: |
+          autoconf
+          export CC=gcc
+          export CXX=g++
+          export EXTRA_CFLAGS="-Werror -Wno-array-bounds"
+          ./configure ${{ matrix.flags }}
+          make -j$(nproc)
+          make -j$(nproc) tests
+          make check

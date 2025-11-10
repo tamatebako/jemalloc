@@ -1,0 +1,43 @@
+# Use official LLVM container with clang 18
+FROM silkeh/clang:18
+
+# Avoid interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install jemalloc build and analysis dependencies
+RUN apt-get update && \
+    apt-get install -y \
+    jq \
+    bear \
+    python3-pip \
+    libz3-dev \
+    autoconf \
+    git \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install CodeChecker
+RUN pip install codechecker --break-system-packages
+
+# Install libunwind for profiling support
+RUN cd /tmp && \
+    wget -q https://github.com/libunwind/libunwind/releases/download/v1.8.3/libunwind-1.8.3.tar.gz && \
+    tar xzf libunwind-1.8.3.tar.gz && \
+    cd libunwind-1.8.3 && \
+    ./configure --prefix=/usr/local && \
+    make -s -j $(nproc) && \
+    make -s install && \
+    ldconfig && \
+    cd / && \
+    rm -rf /tmp/libunwind-1.8.3*
+
+# Set working directory
+WORKDIR /work
+
+# Set compilers and library paths
+ENV CC=clang
+ENV CXX=clang++
+ENV LDFLAGS="-L/usr/local/lib -L/usr/lib"
+
+# Default command runs static analysis
+CMD ["./scripts/run_static_analysis.sh", "/tmp/static_results", "/tmp/output.txt"]

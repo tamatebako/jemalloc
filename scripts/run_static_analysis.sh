@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Static analysis script for jemalloc using Clang static analyzer and CodeChecker
+# Requires: clang, bear, codechecker, jq
+# Usage: ./run_static_analysis.sh [output_dir] [github_output_file]
+
 git clean -Xfd
 
 export CC='clang'
 export CXX='clang++'
+
+# Comprehensive compile-time malloc configuration for thorough analysis
 compile_time_malloc_conf='background_thread:true,'\
 'metadata_thp:auto,'\
 'abort_conf:true,'\
@@ -12,6 +18,8 @@ compile_time_malloc_conf='background_thread:true,'\
 'zero_realloc:free,'\
 'prof_unbias:false,'\
 'prof_time_resolution:high'
+
+# Extra warning flags for more thorough static analysis
 extra_flags=(
 	-Wmissing-prototypes
 	-Wmissing-variable-declarations

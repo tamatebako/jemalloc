@@ -34,20 +34,31 @@ jobs:
             cc: gcc
             cxx: g++
 
-          # Windows
-          - name: Windows x64 MSVC
-            os: windows-2022
-            cc: cl
-            cxx: cl
+          # Windows MinGW (autoconf/configure based)
           - name: Windows x64 MinGW
             os: windows-2022
             cc: gcc
             cxx: g++
             mingw: MINGW64
-          - name: Windows ARM64 MSVC
-            os: windows-11-arm
+          - name: Windows x86 MinGW
+            os: windows-2022
+            cc: gcc
+            cxx: g++
+            mingw: MINGW32
+
+          # Windows MSVC (autoconf+make with cl.exe, like Travis CI)
+          - name: Windows x64 MSVC
+            os: windows-2022
             cc: cl
             cxx: cl
+            msvc: true
+            msvc_arch: x64
+          - name: Windows x86 MSVC
+            os: windows-2022
+            cc: cl
+            cxx: cl
+            msvc: true
+            msvc_arch: x86
 
           # macOS
           - name: macOS Intel
@@ -70,20 +81,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y autoconf
 
-      # Windows MSVC setup
+      # Windows MSVC setup (autoconf+make with cl.exe via PATH inheritance)
       - name: Setup MSVC
-        if: runner.os == 'Windows' && matrix.cc == 'cl'
-        uses: microsoft/setup-msbuild@v2
+        if: runner.os == 'Windows' && matrix.msvc
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvc_arch }}
 
       - name: Setup MSYS2 for MSVC
-        if: runner.os == 'Windows' && matrix.cc == 'cl'
+        if: runner.os == 'Windows' && matrix.msvc
         uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
-          update: true
-          install: autotools make
+          msystem: ${{ matrix.msvc_arch == 'x86' && 'MINGW32' || 'MINGW64' }}
+          update: false
+          path-type: inherit
+          install: >-
+            autoconf
+            make
 
-      # Windows MinGW setup
+      # Windows MinGW setup (autoconf/configure)
       - name: Setup MSYS2 MinGW
         if: runner.os == 'Windows' && matrix.mingw != ''
         uses: msys2/setup-msys2@v2
@@ -91,52 +107,116 @@ jobs:
           msystem: ${{ matrix.mingw }}
           update: true
           install: >-
-            autotools
-            git
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-make
+            autoconf
+            make
+            ${{ matrix.mingw == 'MINGW64' && 'mingw-w64-x86_64-gcc mingw-w64-x86_64-binutils' || 'mingw-w64-i686-gcc mingw-w64-i686-binutils' }}
 
       # macOS setup
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
         run: brew install autoconf
 
-      # Build - Linux/macOS
-      - name: Build and test (Linux/macOS)
+      # Configure - Linux/macOS
+      - name: Configure (Linux/macOS)
+        if: runner.os != 'Windows'
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+          EXTRA_CFLAGS: ${{ runner.os == 'Linux' && (contains(matrix.cc, 'clang') && '-Werror -Wno-array-bounds -Wno-unknown-warning-option -Wno-ignored-attributes' || '-Werror -Wno-array-bounds') || '-Werror -Wno-array-bounds -Wno-unknown-warning-option -Wno-ignored-attributes -Wno-deprecated-declarations' }}
+        run: |
+          echo "==> Autoconf"
+          autoconf
+          echo "==> Configure with CC=$CC"
+          ./configure
+
+      - name: Build (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
-          autoconf
-          export CC="${{ matrix.cc }}"
-          export CXX="${{ matrix.cxx }}"
-
-          if [ "${{ runner.os }}" = "Linux" ]; then
-            if [[ "${{ matrix.cc }}" == clang* ]]; then
-              export EXTRA_CFLAGS="-Werror -Wno-array-bounds -Wno-unknown-warning-option -Wno-ignored-attributes"
-            else
-              export EXTRA_CFLAGS="-Werror -Wno-array-bounds"
-            fi
-          elif [ "${{ runner.os }}" = "macOS" ]; then
-            export EXTRA_CFLAGS="-Werror -Wno-array-bounds -Wno-unknown-warning-option -Wno-ignored-attributes -Wno-deprecated-declarations"
-          fi
-
-          ./configure
+          echo "==> Build"
           make -j$(nproc || sysctl -n hw.ncpu)
+
+      - name: Build tests (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          echo "==> Build tests"
           make -j$(nproc || sysctl -n hw.ncpu) tests
+
+      - name: Run tests (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          echo "==> Run tests"
           make check
 
-      # Build - Windows
-      - name: Build and test (Windows)
-        if: runner.os == 'Windows'
+      # Windows MinGW configure and build
+      - name: Configure (Windows MinGW)
+        if: runner.os == 'Windows' && matrix.mingw != ''
+        shell: msys2 {0}
+        env:
+          CC: gcc
+          CXX: g++
+          EXTRA_CFLAGS: '-fcommon'
+        run: |
+          echo "==> Autoconf"
+          autoconf
+          echo "==> Configure with CC=$CC"
+          ./configure
+
+      - name: Build (Windows MinGW)
+        if: runner.os == 'Windows' && matrix.mingw != ''
         shell: msys2 {0}
         run: |
+          echo "==> Build"
+          make -j3
+
+      - name: Build tests (Windows MinGW)
+        if: runner.os == 'Windows' && matrix.mingw != ''
+        shell: msys2 {0}
+        run: |
+          echo "==> Build tests"
+          make -j3 tests
+
+      - name: Run tests (Windows MinGW)
+        if: runner.os == 'Windows' && matrix.mingw != ''
+        shell: msys2 {0}
+        run: |
+          echo "==> Run tests"
+          make -k check
+
+      # Windows MSVC: Use autoconf+make with cl.exe (like Travis CI)
+      - name: Configure (Windows MSVC)
+        if: runner.os == 'Windows' && matrix.msvc
+        shell: msys2 {0}
+        env:
+          CC: cl
+          CXX: cl
+        run: |
+          echo "==> Autoconf"
           autoconf
-          if [ "${{ matrix.cc }}" = "gcc" ]; then
-            export EXTRA_CFLAGS="-fcommon"
-          fi
+          echo "==> Configure with CC=$CC CXX=$CXX"
           ./configure
-          make -j$(nproc)
-          make -j$(nproc) tests
-          make check
+
+      - name: Build (Windows MSVC)
+        if: runner.os == 'Windows' && matrix.msvc
+        shell: msys2 {0}
+        run: |
+          echo "==> Build"
+          make -j3
+
+      - name: Build tests (Windows MSVC)
+        if: runner.os == 'Windows' && matrix.msvc
+        shell: msys2 {0}
+        run: |
+          echo "==> Build tests"
+          make -j3 tests
+
+      - name: Run tests (Windows MSVC)
+        if: runner.os == 'Windows' && matrix.msvc
+        shell: msys2 {0}
+        run: |
+          echo "==> Adding lib/ to PATH for DLL loading"
+          export PATH="$(pwd)/lib:$PATH"
+          echo "==> Run tests"
+          make -k check
 
   # FreeBSD
   freebsd:
@@ -151,7 +231,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Test on FreeBSD
+      - name: Build and test on FreeBSD
         uses: vmactions/freebsd-vm@v1
         with:
           release: ${{ matrix.version }}
@@ -159,11 +239,18 @@ jobs:
           prepare: pkg install -y autoconf gmake gcc
           run: |
             set -e
+            echo "==> Configure"
             autoconf
             ./configure --with-jemalloc-prefix=ci_
+
+            echo "==> Build"
             JFLAG=$(sysctl -n kern.smp.cpus)
             gmake -j${JFLAG}
+
+            echo "==> Build tests"
             gmake -j${JFLAG} tests
+
+            echo "==> Run tests"
             gmake check
 
   # Level 2: Comprehensive configure flag testing (runs after Linux succeeds)
@@ -354,45 +441,57 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y autoconf
 
-      - name: Build and test
+      - name: Configure
+        env:
+          CC: ${{ matrix.compiler == 'clang' && 'clang' || 'gcc' }}
+          CXX: ${{ matrix.compiler == 'clang' && 'clang++' || 'g++' }}
+          EXTRA_CFLAGS: ${{ matrix.compiler == 'clang' && '-Werror -Wno-array-bounds -Wno-unknown-warning-option -Wno-ignored-attributes' || '-Werror -Wno-array-bounds' }}
         run: |
           autoconf
-          if [ "${{ matrix.compiler }}" = "clang" ]; then
-            export CC=clang
-            export CXX=clang++
-            export EXTRA_CFLAGS="-Werror -Wno-array-bounds -Wno-unknown-warning-option -Wno-ignored-attributes"
-          else
-            export CC=gcc
-            export CXX=g++
-            export EXTRA_CFLAGS="-Werror -Wno-array-bounds"
-          fi
-
           ./configure ${{ matrix.flags }}
-          make -j$(nproc)
-          make -j$(nproc) tests
-          make check
+
+      - name: Build
+        run: make -j$(nproc)
+
+      - name: Build tests
+        run: make -j$(nproc) tests
+
+      - name: Run tests
+        run: make check
 
   # Level 2: 32-bit builds (after Linux succeeds)
   linux-32bit:
-    name: Linux 32-bit - gcc ${{ matrix.flags }}
+    name: Linux 32-bit - gcc ${{ matrix.name }}
     runs-on: ubuntu-24.04
     needs: basic-platforms
     strategy:
       fail-fast: false
       matrix:
-        flags:
-          - ''
-          - --enable-debug
-          - --enable-prof
-          - --disable-stats
-          - --disable-libdl
-          - --enable-opt-safety-checks
-          - --with-lg-page=16
-          - --enable-prof --enable-prof-frameptr
-          - --with-malloc-conf=tcache:false
-          - --with-malloc-conf=dss:primary
-          - --with-malloc-conf=percpu_arena:percpu
-          - --with-malloc-conf=background_thread:true
+        include:
+          - name: default
+            flags: ''
+          - name: debug
+            flags: --enable-debug
+          - name: prof
+            flags: --enable-prof
+          - name: disable-stats
+            flags: --disable-stats
+          - name: disable-libdl
+            flags: --disable-libdl
+          - name: opt-safety-checks
+            flags: --enable-opt-safety-checks
+          - name: lg-page-16
+            flags: --with-lg-page=16
+          - name: prof-frameptr
+            flags: --enable-prof --enable-prof-frameptr
+          - name: tcache-false
+            flags: --with-malloc-conf=tcache:false
+          - name: dss-primary
+            flags: --with-malloc-conf=dss:primary
+          - name: percpu-arena
+            flags: --with-malloc-conf=percpu_arena:percpu
+          - name: background-thread
+            flags: --with-malloc-conf=background_thread:true
 
     steps:
       - name: Checkout
@@ -403,14 +502,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y autoconf gcc-multilib g++-multilib
 
-      - name: Build and test
+      - name: Configure
+        env:
+          EXTRA_CFLAGS: '-Werror -Wno-array-bounds'
         run: |
           autoconf
-          export EXTRA_CFLAGS="-Werror -Wno-array-bounds"
           ./configure CC="gcc -m32" CXX="g++ -m32" ${{ matrix.flags }}
-          make -j$(nproc)
-          make -j$(nproc) tests
-          make check
+
+      - name: Build
+        run: make -j$(nproc)
+
+      - name: Build tests
+        run: make -j$(nproc) tests
+
+      - name: Run tests
+        run: make check
 
   # Special builds
   special-builds:
@@ -435,13 +541,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y autoconf
 
-      - name: Build and test
+      - name: Configure
+        env:
+          CC: gcc
+          CXX: g++
+          EXTRA_CFLAGS: '-Werror -Wno-array-bounds'
         run: |
           autoconf
-          export CC=gcc
-          export CXX=g++
-          export EXTRA_CFLAGS="-Werror -Wno-array-bounds"
           ./configure ${{ matrix.flags }}
-          make -j$(nproc)
-          make -j$(nproc) tests
-          make check
+
+      - name: Build
+        run: make -j$(nproc)
+
+      - name: Build tests
+        run: make -j$(nproc) tests
+
+      - name: Run tests
+        run: make check

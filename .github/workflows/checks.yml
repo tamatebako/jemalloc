@@ -1,0 +1,107 @@
+name: Quality Checks
+
+on:
+  pull_request:
+  push:
+    branches: [master, main, dev]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  trailing-whitespace:
+    name: Check trailing whitespace
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for trailing whitespace
+        run: |
+          if git grep -E '\s+$' -- ':!*.md' ':!build-aux/install-sh'; then
+            echo '::error::Found trailing whitespace in files'
+            exit 1
+          fi
+          echo '✓ No trailing whitespace found'
+
+  code-formatting:
+    name: Check code formatting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format-18
+
+      - name: Check formatting
+        run: |
+          # Note: scripts/check-formatting.sh has empty FILES array
+          # This is a placeholder for future formatting enforcement
+          echo "Code formatting check (currently no files to check)"
+          echo "To enable: add files to scripts/check-formatting.sh FILES array"
+
+  static-analysis:
+    name: Static analysis
+    runs-on: ubuntu-latest
+    steps:
+      # Build libunwind from source (newer than Ubuntu packages)
+      - name: Check out libunwind
+        uses: actions/checkout@v4
+        with:
+          repository: libunwind/libunwind
+          path: libunwind
+          ref: 'v1.8.3'
+
+      - name: Install libunwind
+        run: |
+          cd libunwind
+          autoreconf -i
+          ./configure --prefix=/usr
+          make -s -j $(nproc) V=0
+          sudo make -s install V=0
+          cd ..
+          rm -rf libunwind
+
+      - name: Checkout jemalloc
+        uses: actions/checkout@v4
+
+      # Setup LLVM/Clang for static analysis
+      - name: Setup LLVM
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: '18'
+          env: true
+
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq bear python3-pip
+          pip install codechecker
+          sudo ldconfig
+
+      - name: Run static analysis
+        id: run_static_analysis
+        env:
+          LDFLAGS: '-L/usr/local/lib -L/usr/lib'
+        run: |
+          scripts/run_static_analysis.sh static_analysis_results "$GITHUB_OUTPUT"
+
+      - name: Upload static analysis results
+        if: ${{ steps.run_static_analysis.outputs.HAS_STATIC_ANALYSIS_RESULTS == '1' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: static_analysis_results
+          path: static_analysis_results
+
+      - name: Check static analysis results
+        run: |
+          if [[ "${{ steps.run_static_analysis.outputs.HAS_STATIC_ANALYSIS_RESULTS }}" == '1' ]]; then
+            echo "::error::Static analysis found issues. Download the 'static_analysis_results' artifact and view index.html for details."
+            exit 1
+          fi

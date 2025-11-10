@@ -50,47 +50,31 @@ jobs:
     name: Static analysis
     runs-on: ubuntu-latest
     steps:
-      # Build libunwind from source (newer than Ubuntu packages)
-      - name: Check out libunwind
-        uses: actions/checkout@v4
-        with:
-          repository: libunwind/libunwind
-          path: libunwind
-          ref: 'v1.8.3'
-
-      - name: Install libunwind
-        run: |
-          cd libunwind
-          autoreconf -i
-          ./configure --prefix=/usr
-          make -s -j $(nproc) V=0
-          sudo make -s install V=0
-          cd ..
-          rm -rf libunwind
-
-      - name: Checkout jemalloc
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # Setup LLVM/Clang for static analysis
-      - name: Setup LLVM
-        uses: KyleMayes/install-llvm-action@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and cache static analysis Docker image
+        uses: docker/build-push-action@v6
         with:
-          version: '18'
-          env: true
+          context: .
+          file: Dockerfile.static-analysis
+          push: false
+          load: true
+          tags: jemalloc-static-analysis:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Install prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq bear python3-pip
-          pip install codechecker
-          sudo ldconfig
-
-      - name: Run static analysis
+      - name: Run static analysis in Docker
         id: run_static_analysis
-        env:
-          LDFLAGS: '-L/usr/local/lib -L/usr/lib'
         run: |
-          scripts/run_static_analysis.sh static_analysis_results "$GITHUB_OUTPUT"
+          docker run --rm \
+            -v $(pwd):/work \
+            -w /work \
+            jemalloc-static-analysis:latest \
+            ./scripts/run_static_analysis.sh static_analysis_results "$GITHUB_OUTPUT"
 
       - name: Upload static analysis results
         if: ${{ steps.run_static_analysis.outputs.HAS_STATIC_ANALYSIS_RESULTS == '1' }}

@@ -214,6 +214,8 @@ jobs:
         if: runner.os == 'Windows' && matrix.msvc
         shell: msys2 {0}
         run: |
+          echo "==> Adding lib/ to PATH for DLL access during test build"
+          export PATH="$(pwd)/lib:$PATH"
           echo "==> Build tests"
           make -j3 tests
 

@@ -1,0 +1,58 @@
+# JemallocConfig.cmake
+# --------------------
+#
+# jemalloc CMake configuration file
+#
+# This file is installed by jemalloc and provides the Jemalloc::jemalloc target.
+#
+# Usage:
+#   find_package(Jemalloc REQUIRED)
+#   target_link_libraries(your_target Jemalloc::jemalloc)
+
+@PACKAGE_INIT@
+
+set(Jemalloc_VERSION "@jemalloc_version@")
+set(Jemalloc_VERSION_MAJOR "@jemalloc_version_major@")
+set(Jemalloc_VERSION_MINOR "@jemalloc_version_minor@")
+set(Jemalloc_VERSION_PATCH "@jemalloc_version_bugfix@")
+
+# Compute installation prefix relative to this file
+get_filename_component(Jemalloc_CMAKE_DIR "${CMAKE_CURRENT_LIST_FILE}" PATH)
+get_filename_component(Jemalloc_INSTALL_PREFIX "${Jemalloc_CMAKE_DIR}/../../../" ABSOLUTE)
+
+# Set include and library paths
+set(Jemalloc_INCLUDE_DIRS "${Jemalloc_INSTALL_PREFIX}/include")
+set(Jemalloc_LIBRARY_DIRS "${Jemalloc_INSTALL_PREFIX}/lib")
+
+# Find the actual library
+find_library(Jemalloc_LIBRARY
+    NAMES jemalloc
+    PATHS ${Jemalloc_LIBRARY_DIRS}
+    NO_DEFAULT_PATH
+)
+
+if(NOT Jemalloc_LIBRARY)
+    set(Jemalloc_FOUND FALSE)
+    return()
+endif()
+
+set(Jemalloc_LIBRARIES ${Jemalloc_LIBRARY})
+
+# Create imported target
+if(NOT TARGET Jemalloc::jemalloc)
+    add_library(Jemalloc::jemalloc UNKNOWN IMPORTED)
+    set_target_properties(Jemalloc::jemalloc PROPERTIES
+        IMPORTED_LOCATION "${Jemalloc_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${Jemalloc_INCLUDE_DIRS}"
+    )
+
+    # Add system dependencies
+    if(UNIX AND NOT APPLE)
+        find_package(Threads REQUIRED)
+        set_property(TARGET Jemalloc::jemalloc APPEND PROPERTY
+            INTERFACE_LINK_LIBRARIES Threads::Threads
+        )
+    endif()
+endif()
+
+check_required_components(Jemalloc)

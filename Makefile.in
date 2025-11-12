@@ -553,7 +553,7 @@ $(objroot)test/unit/%$(EXE): $(objroot)test/unit/%.$(O) $(C_JET_OBJS) $(C_TESTLI
 
 $(objroot)test/integration/%$(EXE): $(objroot)test/integration/%.$(O) $(C_TESTLIB_INTEGRATION_OBJS) $(C_UTIL_INTEGRATION_OBJS) $(objroot)lib/$(LIBJEMALLOC).$(IMPORTLIB)
 	@mkdir -p $(@D)
-	$(CC) $(TEST_LD_MODE) $(LDTARGET) $(filter %.$(O),$^) $(call RPATH,$(objroot)lib) $(LJEMALLOC) $(LDFLAGS) $(filter-out -lm,$(filter -lrt -pthread -lstdc++,$(LIBS))) $(LM) $(EXTRA_LDFLAGS)
+	$(CC) $(TEST_LD_MODE) $(LDTARGET) $(filter %.$(O),$^) $(call RPATH,$(objroot)lib) $(LJEMALLOC) $(LDFLAGS) $(filter-out -lm,$(LIBS)) $(LM) $(EXTRA_LDFLAGS)
 
 $(objroot)test/integration/cpp/%$(EXE): $(objroot)test/integration/cpp/%.$(O) $(C_TESTLIB_INTEGRATION_OBJS) $(C_UTIL_INTEGRATION_OBJS) $(objroot)lib/$(LIBJEMALLOC).$(IMPORTLIB)
 	@mkdir -p $(@D)
@@ -633,13 +633,28 @@ install_lib_pc: $(PC)
 	$(INSTALL) -m 644 $$l $(LIBDIR)/pkgconfig; \
 done
 
+install_lib_cmake:
+	@mkdir -p $(objroot)cmake
+	$(INSTALL) -d $(LIBDIR)/cmake/jemalloc
+	$(INSTALL) -m 644 $(srcroot)cmake/FindJemalloc.cmake $(LIBDIR)/cmake/jemalloc
+	@sed -e 's|@jemalloc_version@|@jemalloc_version@|g' \
+	     -e 's|@jemalloc_version_major@|@jemalloc_version_major@|g' \
+	     -e 's|@jemalloc_version_minor@|@jemalloc_version_minor@|g' \
+	     -e 's|@jemalloc_version_bugfix@|@jemalloc_version_bugfix@|g' \
+	     -e 's|@PACKAGE_INIT@||g' \
+	     $(srcroot)cmake/JemallocConfig.cmake.in > $(objroot)cmake/JemallocConfig.cmake
+	$(INSTALL) -m 644 $(objroot)cmake/JemallocConfig.cmake $(LIBDIR)/cmake/jemalloc
+	@sed -e 's|@jemalloc_version@|@jemalloc_version@|g' \
+	     $(srcroot)cmake/JemallocConfigVersion.cmake.in > $(objroot)cmake/JemallocConfigVersion.cmake
+	$(INSTALL) -m 644 $(objroot)cmake/JemallocConfigVersion.cmake $(LIBDIR)/cmake/jemalloc
+
 ifeq ($(enable_shared), 1)
 install_lib: install_lib_shared
 endif
 ifeq ($(enable_static), 1)
 install_lib: install_lib_static
 endif
-install_lib: install_lib_pc
+install_lib: install_lib_pc install_lib_cmake
 
 install_doc_html: build_doc_html
 	$(INSTALL) -d $(DATADIR)/doc/jemalloc$(install_suffix)
@@ -682,13 +697,20 @@ uninstall_lib_static:
 uninstall_lib_pc:
 	$(RM) -v $(foreach p,$(notdir $(PC)),$(LIBDIR)/pkgconfig/$(p))
 
+uninstall_lib_cmake:
+	$(RM) -v $(LIBDIR)/cmake/jemalloc/FindJemalloc.cmake
+	$(RM) -v $(LIBDIR)/cmake/jemalloc/JemallocConfig.cmake
+	$(RM) -v $(LIBDIR)/cmake/jemalloc/JemallocConfigVersion.cmake
+	-rmdir $(LIBDIR)/cmake/jemalloc 2>/dev/null || true
+	-rmdir $(LIBDIR)/cmake 2>/dev/null || true
+
 ifeq ($(enable_shared), 1)
 uninstall_lib: uninstall_lib_shared
 endif
 ifeq ($(enable_static), 1)
 uninstall_lib: uninstall_lib_static
 endif
-uninstall_lib: uninstall_lib_pc
+uninstall_lib: uninstall_lib_pc uninstall_lib_cmake
 
 uninstall_doc_html:
 	$(RM) -v $(foreach d,$(notdir $(DOCS_HTML)),$(DATADIR)/doc/jemalloc$(install_suffix)/$(d))

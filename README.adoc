@@ -1,0 +1,232 @@
+= jemalloc - Tebako Fork
+
+image:https://img.shields.io/github/v/tag/tamatebako/jemalloc.svg[GitHub tag]
+image:https://img.shields.io/github/license/tamatebako/jemalloc.svg[License]
+image:https://github.com/tamatebako/jemalloc/actions/workflows/ci.yml/badge.svg["CI Build",link="https://github.com/tamatebako/jemalloc/actions/workflows/ci.yml"]
+image:https://github.com/tamatebako/jemalloc/actions/workflows/checks.yml/badge.svg["Quality Checks",link="https://github.com/tamatebako/jemalloc/actions/workflows/checks.yml"]
+
+== Purpose
+
+This is the *Tebako fork* of jemalloc, a general-purpose `malloc(3)`
+implementation that emphasizes fragmentation avoidance and scalable concurrency
+support.
+
+jemalloc first came into use as the FreeBSD libc allocator in 2005, and since
+then it has found its way into numerous applications that rely on its
+predictable behavior. In 2010 jemalloc development efforts broadened to include
+developer support features such as heap profiling and extensive
+monitoring/tuning hooks. Modern jemalloc releases continue to be integrated back
+into FreeBSD, and therefore versatility remains critical.
+
+This fork is based on the Facebook fork of the original jemalloc project. The
+original jemalloc project by Jason Evans has been discontinued by its original
+author and is no longer actively maintained.
+
+== Why this fork exists
+
+Tebako uses jemalloc as its default memory allocator due to its strong
+performance characteristics and rich feature set.
+
+The Tebako fork continues jemalloc development with enhancements on top of the
+original project, described below.
+
+=== CMake build system support
+
+This fork adds comprehensive CMake integration for modern C/C++ projects:
+
+* *First-class CMake support* - Automatic installation of CMake configuration
+  files ([`JemallocConfig.cmake`](cmake/JemallocConfig.cmake.in:1),
+  [`JemallocConfigVersion.cmake`](cmake/JemallocConfigVersion.cmake.in:1))
+* *Find module included* - [`FindJemalloc.cmake`](cmake/FindJemalloc.cmake:1)
+  for projects that need standalone detection
+* *Modern CMake targets* - `Jemalloc::jemalloc` imported target with proper
+  include directories and library linkage
+* *Version detection* - Full support for `find_package(Jemalloc 5.3 REQUIRED)`
+  version requirements
+* *Seamless integration* - Works with both system-installed and
+  ExternalProject-based builds
+
+This makes jemalloc much easier to integrate into CMake-based projects without
+manual configuration.
+
+=== Comprehensive cross-platform CI/CD support
+
+The original jemalloc project relied on a fragmented CI approach using Travis
+CI, AppVeyor, and Cirrus CI. This fork modernizes the testing infrastructure
+with:
+
+* *Unified GitHub Actions workflows* - All CI/CD consolidated into a single, maintainable system
+* *Extensive platform coverage* - Comprehensive testing across:
+** Linux: Ubuntu 22.04/24.04 on x64, ARM64, and 32-bit (cross-compilation)
+** Windows: Server 2022/2025 and Windows 11 on x64, x86, and ARM64
+** macOS: versions 13-15 on Intel x64 and Apple Silicon ARM64
+** FreeBSD: versions 14.x and 15.x
+* *Two-level testing approach*:
+** Level 1: Fast smoke tests (~9 jobs, ~2 minutes)
+** Level 2: Comprehensive testing (~150+ jobs covering all configure flag combinations, ~30-45 minutes)
+* *Quality checks* - Automated trailing whitespace detection, code formatting, and static analysis with CodeChecker
+
+=== Windows ARM64 support
+
+The original jemalloc never supported ARM64 on Windows. This fork supports
+Windows ARM64, and is currently under active development.
+
+=== Ongoing development
+
+While the original project is frozen, this fork continues to:
+
+* Fix security issues and code quality problems
+* Optimize performance for modern hardware
+* Maintain compatibility across evolving platforms
+* Address bugs reported by the community
+
+
+== Installation
+
+=== Quick start
+
+[source,shell]
+----
+./configure
+make
+make install
+----
+
+For detailed build instructions, configuration options, platform-specific
+builds, and advanced usage, see link:INSTALL.adoc[INSTALL.adoc].
+
+=== CMake integration
+
+After installing jemalloc with `make install`, CMake projects can immediately
+use `find_package()`:
+
+[source,cmake]
+----
+cmake_minimum_required(VERSION 3.10)
+project(myapp)
+
+find_package(Jemalloc REQUIRED)
+
+add_executable(myapp main.c)
+target_link_libraries(myapp PRIVATE Jemalloc::jemalloc)
+----
+
+For alternative integration methods, version requirements, and building from
+source with ExternalProject, see link:INSTALL.adoc[INSTALL.adoc].
+
+== Usage
+
+=== Basic integration
+
+Link your application against libjemalloc:
+
+[source,c]
+----
+// No code changes required - use standard malloc/free
+void *ptr = malloc(1024);
+free(ptr);
+----
+
+=== Runtime configuration
+
+Configure behavior via environment variables:
+
+[source,shell]
+----
+# Disable thread caching
+MALLOC_CONF="tcache:false"
+
+# Enable per-CPU arenas
+MALLOC_CONF="percpu_arena:percpu"
+
+# Multiple options
+MALLOC_CONF="tcache:false,dirty_decay_ms:10000"
+----
+
+=== Advanced: mallctl interface
+
+[source,c]
+----
+#include <jemalloc/jemalloc.h>
+
+// Flush thread cache
+mallctl("thread.tcache.flush", NULL, NULL, NULL, 0);
+
+// Query statistics
+size_t allocated;
+size_t sz = sizeof(allocated);
+mallctl("stats.allocated", &allocated, &sz, NULL, 0);
+----
+
+== Platform support
+
+[cols="1,2,2,1",options="header"]
+|===
+|Platform
+|Architectures
+|Compilers
+|CI Coverage
+
+|Linux
+|x64, ARM64, x86 (cross-compile)
+|gcc, clang
+|✅ Full
+
+|Windows
+|x64, x86, ARM64*
+|MSVC, MinGW
+|✅ Full (ARM64 in progress)
+
+|macOS
+|x64 (Intel), ARM64 (Apple Silicon)
+|clang
+|✅ Full
+
+|FreeBSD
+|x64
+|gcc
+|✅ Full
+|===
+
+*ARM64 on Windows is under active development
+
+== Documentation
+
+* link:INSTALL.adoc[INSTALL.adoc] - Detailed build and installation instructions
+* link:doc_internal/PROFILING_INTERNALS.md[Profiling Internals] - Heap profiling implementation details
+* link:ChangeLog[ChangeLog] - Release history and changes
+
+== Contributing
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch from `dev`
+3. Make your changes with clear, semantic commit messages
+4. Run the full test suite: `make check`
+5. Submit a pull request to the `dev` branch
+
+All pull requests are automatically tested across ~160+ CI jobs covering all supported platforms and configurations.
+
+== Links
+
+* *Tebako fork*: https://github.com/tamatebako/jemalloc
+* *Original jemalloc* (discontinued): https://github.com/jemalloc/jemalloc
+* *Facebook fork* (parent of this fork): https://github.com/facebook/jemalloc
+* *Tebako project*: https://github.com/tamatebako
+
+== License
+
+jemalloc is licensed under the BSD-2-Clause license. See the link:COPYING[COPYING] file for details.
+
+== Acknowledgments
+
+This fork is based on the work of:
+
+* Jason Evans - Original jemalloc author
+* Facebook - Maintained fork with additional features
+* FreeBSD community - Integration and testing
+* All contributors to the jemalloc project
+
+We continue their excellent work while maintaining and enhancing jemalloc for
+modern use cases.

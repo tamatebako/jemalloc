@@ -260,14 +260,13 @@ tcache_gc_small_nremote_get(cache_bin_t *cache_bin, void *addr,
 	    : UINTPTR_MAX;
 
 	/* Scan the entire bin to count the number of remote pointers. */
-	void         **head = cache_bin->stack_head;
 	cache_bin_sz_t n_remote_slab = 0, n_remote_neighbor = 0;
 	cache_bin_sz_t ncached = cache_bin_ncached_get_local(cache_bin);
-	for (void **cur = head; cur < head + ncached; cur++) {
+	for (cache_bin_sz_t idx = 0; idx < ncached; idx++) {
 		n_remote_slab += (cache_bin_sz_t)tcache_gc_is_addr_remote(
-		    *cur, slab_min, slab_max);
+		    cache_bin->stack_head[idx], slab_min, slab_max);
 		n_remote_neighbor += (cache_bin_sz_t)tcache_gc_is_addr_remote(
-		    *cur, neighbor_min, neighbor_max);
+		    cache_bin->stack_head[idx], neighbor_min, neighbor_max);
 	}
 	/*
 	 * Note: since slab size is dynamic and can be larger than 2M, i.e.
@@ -299,7 +298,8 @@ tcache_gc_small_nremote_get(cache_bin_t *cache_bin, void *addr,
 static inline void
 tcache_gc_small_bin_shuffle(cache_bin_t *cache_bin, cache_bin_sz_t nremote,
     uintptr_t addr_min, uintptr_t addr_max) {
-	void         **swap = NULL;
+	cache_bin_sz_t swap_idx = 0;
+	bool           has_swap = false;
 	cache_bin_sz_t ncached = cache_bin_ncached_get_local(cache_bin);
 	cache_bin_sz_t ntop = ncached - nremote, cnt = 0;
 	assert(ntop > 0 && ntop < ncached);
@@ -311,8 +311,8 @@ tcache_gc_small_bin_shuffle(cache_bin_t *cache_bin, cache_bin_sz_t nremote,
 	 * While the [head + cnt, head + ntop) part contains only remote ptrs.
 	 */
 	void **head = cache_bin->stack_head;
-	for (void **cur = head; cur < head + ntop; cur++) {
-		if (!tcache_gc_is_addr_remote(*cur, addr_min, addr_max)) {
+	for (cache_bin_sz_t idx = 0; idx < ntop; idx++) {
+		if (!tcache_gc_is_addr_remote(head[idx], addr_min, addr_max)) {
 			/* Tracks the number of non-remote ptrs seen so far. */
 			cnt++;
 			/*
@@ -321,51 +321,53 @@ tcache_gc_small_bin_shuffle(cache_bin_t *cache_bin, cache_bin_sz_t nremote,
 			 * and increment the swap pointer so that it's still
 			 * pointing to the top remote ptr in the bin.
 			 */
-			if (swap != NULL) {
-				assert(swap < cur);
+			if (has_swap) {
+				assert(swap_idx < idx);
 				assert(tcache_gc_is_addr_remote(
-				    *swap, addr_min, addr_max));
-				void *tmp = *cur;
-				*cur = *swap;
-				*swap = tmp;
-				swap++;
-				assert(swap <= cur);
+				    head[swap_idx], addr_min, addr_max));
+				void *tmp = head[idx];
+				head[idx] = head[swap_idx];
+				head[swap_idx] = tmp;
+				swap_idx++;
+				assert(swap_idx <= idx);
 				assert(tcache_gc_is_addr_remote(
-				    *swap, addr_min, addr_max));
+				    head[swap_idx], addr_min, addr_max));
 			}
 			continue;
-		} else if (swap == NULL) {
+		} else if (!has_swap) {
 			/* Swap always points to the top remote ptr in the bin. */
-			swap = cur;
+			swap_idx = idx;
+			has_swap = true;
 		}
 	}
 	/*
 	 * Scan the [head + ntop, head + ncached) part of the cache bin,
 	 * after which it should only contain remote ptrs.
 	 */
-	for (void **cur = head + ntop; cur < head + ncached; cur++) {
+	for (cache_bin_sz_t idx = ntop; idx < ncached; idx++) {
 		/* Early break if all non-remote ptrs have been moved. */
 		if (cnt == ntop) {
 			break;
 		}
-		if (!tcache_gc_is_addr_remote(*cur, addr_min, addr_max)) {
+		if (!tcache_gc_is_addr_remote(head[idx], addr_min, addr_max)) {
 			assert(tcache_gc_is_addr_remote(
-			    *(head + cnt), addr_min, addr_max));
-			void *tmp = *cur;
-			*cur = *(head + cnt);
-			*(head + cnt) = tmp;
+			    head[cnt], addr_min, addr_max));
+			void *tmp = head[idx];
+			head[idx] = head[cnt];
+			head[cnt] = tmp;
 			cnt++;
 		}
 	}
 	assert(cnt == ntop);
 	/* Sanity check to make sure the shuffle is done correctly. */
-	for (void **cur = head; cur < head + ncached; cur++) {
-		assert(*cur != NULL);
-		assert(
-		    ((cur < head + ntop)
-		        && !tcache_gc_is_addr_remote(*cur, addr_min, addr_max))
-		    || ((cur >= head + ntop)
-		        && tcache_gc_is_addr_remote(*cur, addr_min, addr_max)));
+	for (cache_bin_sz_t idx = 0; idx < ncached; idx++) {
+		assert(head[idx] != NULL);
+		assert(((idx < ntop)
+		           && !tcache_gc_is_addr_remote(
+		               head[idx], addr_min, addr_max))
+		    || ((idx >= ntop)
+		        && tcache_gc_is_addr_remote(
+		            head[idx], addr_min, addr_max)));
 	}
 }
 

@@ -292,7 +292,7 @@ if test "x$GCC" = "xyes" ; then
   JE_CFLAGS_ADD([-g3])
 elif test "x$je_cv_msvc" = "xyes" ; then
   CC="$CC -nologo"
-  JE_CFLAGS_ADD([-Zi])
+  JE_CFLAGS_ADD([-Z7])
   JE_CFLAGS_ADD([-MT])
   JE_CFLAGS_ADD([-W3])
   JE_CFLAGS_ADD([-FS])
@@ -1452,7 +1452,7 @@ void foo(void *p) { __builtin_prefetch(p, 1, 3); }
 	   enable_experimental_fp_prefetch="1"
 	else
 	   enable_experimental_fp_prefetch="0"
-	   AC_MSG_ERROR([--enable--experimental-fp-prefetch can only be used when builtin_preftech is available])
+	   AC_MSG_ERROR([--enable--experimental-fp-prefetch can only be used when builtin_prefetch is available])
 	fi
    JE_CFLAGS_RESTORE()
 fi
@@ -2135,6 +2135,7 @@ dnl Check if we have dlsym support.
   dnl Check if pthread_setname_np is available with the expected API.
   JE_COMPILABLE([pthread_setname_np(3)], [
 #include <pthread.h>
+#include <pthread_np.h>
 ], [
   pthread_setname_np(pthread_self(), "setname_test");
 ], [je_cv_pthread_setname_np])
@@ -2145,6 +2146,7 @@ dnl Check if we have dlsym support.
   dnl the pthread_setname_np counterpart
   JE_COMPILABLE([pthread_getname_np(3)], [
 #include <pthread.h>
+#include <pthread_np.h>
 #include <stdlib.h>
 ], [
   {

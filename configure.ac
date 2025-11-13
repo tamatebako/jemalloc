@@ -461,6 +461,17 @@ case "${host_cpu}" in
 	if test "x${je_cv_isb}" = "xyes" ; then
 	    CPU_SPINWAIT='__asm__ volatile("isb")'
 	fi
+dnl Check for MSVC ARM64 yield intrinsic
+if test "x${je_cv_msvc}" = "xyes" ; then
+    AC_CACHE_VAL([je_cv_arm64_yield_msvc],
+      [JE_COMPILABLE([ARM64 yield intrinsic MSVC],
+[#include <intrin.h>],
+[[__yield(); return 0;]],
+[je_cv_arm64_yield_msvc])])
+    if test "x${je_cv_arm64_yield_msvc}" = "xyes" ; then
+CPU_SPINWAIT='__yield()'
+    fi
+fi
 	;;
   *)
 	HAVE_CPU_SPINWAIT=0
@@ -2085,7 +2096,7 @@ dnl ============================================================================
 dnl Enable libdl by default.
 AC_ARG_ENABLE([libdl],
   [AS_HELP_STRING([--disable-libdl],
-  [Do not use libdl])],
+                  [Do not use libdl])],
 [if test "x$enable_libdl" = "xno" ; then
   enable_libdl="0"
 else

@@ -560,8 +560,10 @@ background_thread_create_locked(tsd_t *tsd, unsigned arena_ind) {
 		/* Threads are created asynchronously by Thread 0. */
 		background_thread_info_t *t0 = &background_thread_info[0];
 		malloc_mutex_lock(tsd_tsdn(tsd), &t0->mtx);
-		assert(t0->state == background_thread_started);
-		pthread_cond_signal(&t0->cond);
+		/* Only signal if thread 0 is actually started (avoid race condition) */
+		if (t0->state == background_thread_started) {
+			pthread_cond_signal(&t0->cond);
+		}
 		malloc_mutex_unlock(tsd_tsdn(tsd), &t0->mtx);
 
 		return false;

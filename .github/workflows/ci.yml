@@ -64,6 +64,14 @@ jobs:
             msvc: true
             msvc_arch: x86
 
+          # Windows ARM64 MSVC (autoconf+make with cl.exe, like Travis CI)
+          - name: Windows ARM64 MSVC
+            os: windows-11-arm
+            cc: cl
+            cxx: cl
+            msvc: true
+            msvc_arch: arm64
+
           # macOS
           - name: macOS Intel
             os: macos-15-intel
@@ -96,7 +104,7 @@ jobs:
         if: runner.os == 'Windows' && matrix.msvc
         uses: msys2/setup-msys2@v2
         with:
-          msystem: ${{ matrix.msvc_arch == 'x86' && 'MINGW32' || 'MINGW64' }}
+          msystem: ${{ matrix.msvc_arch == 'x86' && 'MINGW32' || (matrix.msvc_arch == 'arm64' && 'CLANGARM64' || 'MINGW64') }}
           update: false
           path-type: inherit
           install: >-

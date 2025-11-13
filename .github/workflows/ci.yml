@@ -93,7 +93,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y autoconf
 
-      # Windows MSVC setup (autoconf+make with cl.exe via PATH inheritance)
+      # Windows MSVC.setup (autoconf+make with cl.exe via PATH inheritance)
       - name: Setup MSVC
         if: runner.os == 'Windows' && matrix.msvc
         uses: ilammy/msvc-dev-cmd@v1
@@ -112,7 +112,7 @@ jobs:
             make
 
       # Windows MinGW setup (autoconf/configure)
-      - name: Setup MSYS2 MinGW
+      - name: Setup_MSYS2 MinGW
         if: runner.os == 'Windows' && matrix.mingw != ''
         uses: msys2/setup-msys2@v2
         with:
@@ -270,6 +270,69 @@ jobs:
 
             echo "==> Run tests"
             gmake check
+
+  # Level 1: Alpine Linux (native musl libc)
+  alpine-musl:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    container: alpine:3.20
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Alpine Linux x64 gcc
+            os: ubuntu-24.04
+            cc: gcc
+            cxx: g++
+          - name: Alpine Linux x64 clang
+            os: ubuntu-24.04
+            cc: clang
+            cxx: clang++
+          - name: Alpine Linux ARM64 gcc
+            os: ubuntu-24.04-arm
+            cc: gcc
+            cxx: g++
+
+    steps:
+      - name: Checkout (Alpine x64)
+        if: matrix.os == 'ubuntu-24.04'
+        uses: actions/checkout@v4
+
+      - name: Checkout (Alpine ARM64)
+        if: matrix.os == 'ubuntu-24.04-arm'
+        uses: taiki-e/checkout-action@v1
+
+      - name: Install dependencies
+        run: |
+          apk update
+          apk add autoconf make gcc g++ clang musl-dev linux-headers
+
+      - name: Configure
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+          EXTRA_CFLAGS: ${{ contains(matrix.cc, 'clang') && '-Werror -Wno-array-bounds -Wno-non-literal-null-conversion' || '-Werror -Wno-array-bounds' }}
+        run: |
+          echo "==> Autoconf"
+          autoconf
+          echo "==> Configure with CC=$CC"
+          ./configure
+
+      - name: Build
+        run: |
+          echo "==> Build"
+          make -j$(nproc)
+
+      - name: Build tests
+        run: |
+          echo "==> Build tests"
+          make -j$(nproc) tests
+
+      - name: Run tests
+        run: |
+          echo "==> Run tests"
+          make check
 
   # Level 2: Comprehensive configure flag testing (runs after Linux succeeds)
   linux-configure-flags:
@@ -564,6 +627,72 @@ jobs:
           CC: gcc
           CXX: g++
           EXTRA_CFLAGS: '-Werror -Wno-array-bounds'
+        run: |
+          autoconf
+          ./configure ${{ matrix.flags }}
+
+      - name: Build
+        run: make -j$(nproc)
+
+      - name: Build tests
+        run: make -j$(nproc) tests
+
+      - name: Run tests
+        run: make check
+
+  # Level 2: Alpine Linux (musl) configure flags
+  alpine-configure-flags:
+    name: Alpine flags - ${{ matrix.compiler }} ${{ matrix.flags }}
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    container: alpine:3.20
+    needs: alpine-musl
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+        compiler: [gcc, clang]
+        flags:
+          # Essential single flags
+          - --enable-debug
+          - --enable-prof
+          - --disable-stats
+          - --disable-libdl
+          - --enable-opt-safety-checks
+          - --with-lg-page=16
+          # Important combinations
+          - --enable-debug --enable-prof
+          - --enable-debug --disable-stats
+          - --enable-prof --disable-stats
+          - --disable-stats --disable-libdl
+          # Runtime config options
+          - --with-malloc-conf=tcache:false
+          - --with-malloc-conf=percpu_arena:percpu
+          - --with-malloc-conf=background_thread:true
+        exclude:
+          # Reduce ARM64 matrix size - only test gcc combinations
+          - arch: arm64
+            compiler: clang
+
+    steps:
+      - name: Checkout (Alpine x64)
+        if: matrix.arch == 'x64'
+        uses: actions/checkout@v4
+
+      - name: Checkout (Alpine ARM64)
+        if: matrix.arch == 'arm64'
+        uses: taiki-e/checkout-action@v1
+
+      - name: Install dependencies
+        run: |
+          apk update
+          apk add autoconf make gcc g++ clang musl-dev linux-headers
+
+      - name: Configure
+        env:
+          CC: ${{ matrix.compiler == 'clang' && 'clang' || 'gcc' }}
+          CXX: ${{ matrix.compiler == 'clang' && 'clang++' || 'g++' }}
+          EXTRA_CFLAGS: ${{ matrix.compiler == 'clang' && '-Werror -Wno-array-bounds -Wno-non-literal-null-conversion' || '-Werror -Wno-array-bounds' }}
         run: |
           autoconf
           ./configure ${{ matrix.flags }}

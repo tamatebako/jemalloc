@@ -787,6 +787,26 @@ case "${host}" in
 	  default_retain="1"
 	fi
 	zero_realloc_default_free="1"
+	dnl ARM64 musl: GCC outline atomics need __getauxval which musl doesn't provide.
+	dnl Disable outline atomics to use inline atomic instructions instead.
+	dnl This fixes build failures on both native ARM64 musl and cross-compilation
+	dnl from x86_64 to ARM64 musl (https://github.com/jemalloc/jemalloc/issues/2782)
+	case "${host_cpu}" in
+	  aarch64)
+	    AC_MSG_CHECKING([whether to disable outline atomics for ARM64 musl])
+	    JE_CFLAGS_SAVE()
+	    JE_CFLAGS_ADD([-mno-outline-atomics])
+	    if test "x${je_cv_cflags_added}" = "x-mno-outline-atomics" ; then
+	      AC_MSG_RESULT([yes])
+	      JE_CFLAGS_RESTORE()
+	      JE_CFLAGS_ADD([-mno-outline-atomics])
+	      JE_CXXFLAGS_ADD([-mno-outline-atomics])
+	    else
+	      AC_MSG_RESULT([no (flag not supported by compiler)])
+	      JE_CFLAGS_RESTORE()
+	    fi
+	    ;;
+	esac
 	;;
   *-*-linux*)
 	dnl syscall(2) and secure_getenv(3) are exposed by _GNU_SOURCE.
@@ -797,7 +817,8 @@ case "${host}" in
 	AC_DEFINE([JEMALLOC_HAS_ALLOCA_H], [ ], [ ])
 	AC_DEFINE([JEMALLOC_PROC_SYS_VM_OVERCOMMIT_MEMORY], [ ], [ ])
 	AC_DEFINE([JEMALLOC_THREADED_INIT], [ ], [ ])
-	AC_DEFINE([JEMALLOC_USE_CXX_THROW], [ ], [ ])
+	AC_DEFINE([JEMALLOC_C11_ATOMICS], [ ], [ ])
+	force_tls="0"
 	if test "${LG_SIZEOF_PTR}" = "3"; then
 	  default_retain="1"
 	fi

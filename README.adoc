@@ -114,6 +114,59 @@ target_link_libraries(myapp PRIVATE Jemalloc::jemalloc)
 For alternative integration methods, version requirements, and building from
 source with ExternalProject, see link:INSTALL.adoc[INSTALL.adoc].
 
+=== Building with musl libc
+
+jemalloc fully supports musl libc, a lightweight and fast alternative to glibc.
+Two build approaches are supported:
+
+==== Native musl (Alpine Linux)
+
+The recommended way to build and test with musl is using Alpine Linux:
+
+[source,bash]
+----
+# Install build dependencies
+apk add autoconf make gcc g++ musl-dev linux-headers
+
+# Build and test
+./autogen.sh
+make
+make check
+
+# Install
+make install
+----
+
+**ARM64 musl note**: jemalloc automatically disables GCC outline atomics on ARM64
++ musl to prevent linker errors with `__getauxval` (which musl doesn't export).
+This fix resolves https://github.com/jemalloc/jemalloc/issues/2782[GitHub issue
+#2782].
+
+==== Cross-compilation with musl-tools (Ubuntu/Debian)
+
+**Note**: Ubuntu's `musl-gcc` wrapper has compatibility issues with autoconf's
+pointer size detection. For production musl builds, use Alpine Linux instead.
+
+If you need Ubuntu-based musl testing:
+
+[source,bash]
+----
+# Install musl tools (has autoconf compatibility issues)
+sudo apt-get install musl-tools musl-dev
+
+# May work for simple cases but not recommended
+./configure CC=musl-gcc CXX=g++
+make
+----
+
+==== musl platform differences
+
+* `MADV_DONTNEED` zeros memory pages on musl (safer than glibc's behavior)
+* No glibc-specific malloc hooks (`__malloc_hook`, `__free_hook`, etc.)
+* All threading and math functions integrated into musl libc (no separate libraries)
+* Smaller binary footprint and faster performance
+* Ideal for containers, embedded systems, and static linking
+
 == Usage
 
 === Basic integration
@@ -167,8 +220,13 @@ mallctl("stats.allocated", &allocated, &sz, NULL, 0);
 |Compilers
 |CI Coverage
 
-|Linux
+|Linux (glibc)
 |x64, ARM64, x86 (cross-compile)
+|gcc, clang
+|✅ Full
+
+|Linux (musl)
+|x64, ARM64
 |gcc, clang
 |✅ Full
 

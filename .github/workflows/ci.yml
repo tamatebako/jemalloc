@@ -317,7 +317,7 @@ jobs:
           echo "==> Autoconf"
           autoconf
           echo "==> Configure with CC=$CC"
-          ./configure
+          ./configure --disable-cxx
 
       - name: Build
         run: |
@@ -695,7 +695,7 @@ jobs:
           EXTRA_CFLAGS: ${{ matrix.compiler == 'clang' && '-Werror -Wno-array-bounds -Wno-non-literal-null-conversion' || '-Werror -Wno-array-bounds' }}
         run: |
           autoconf
-          ./configure ${{ matrix.flags }}
+          ./configure --disable-cxx ${{ matrix.flags }}
 
       - name: Build
         run: make -j$(nproc)

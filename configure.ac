@@ -783,6 +783,7 @@ case "${host}" in
 	AC_DEFINE([JEMALLOC_HAS_ALLOCA_H], [ ], [ ])
 	AC_DEFINE([JEMALLOC_PROC_SYS_VM_OVERCOMMIT_MEMORY], [ ], [ ])
 	AC_DEFINE([JEMALLOC_THREADED_INIT], [ ], [ ])
+	AC_DEFINE([JEMALLOC_MUSL], [ ], [ ])
 	if test "${LG_SIZEOF_PTR}" = "3"; then
 	  default_retain="1"
 	fi

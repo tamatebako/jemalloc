@@ -128,14 +128,22 @@ The recommended way to build and test with musl is using Alpine Linux:
 # Install build dependencies
 apk add autoconf make gcc g++ musl-dev linux-headers
 
-# Build and test
+# Build and test (C++ disabled to avoid hanging OOM tests)
 ./autogen.sh
+./configure --disable-cxx
 make
 make check
 
 # Install
 make install
 ----
+
+**C++ support note**: C++ integration is disabled on Alpine/musl CI testing
+(`--disable-cxx`) because C++ memory exhaustion tests hang in containerized
+environments due to differences in OOM behavior between musl and glibc. For
+production deployments requiring C++ support, you can enable it with
+`--enable-cxx` but be aware that memory exhaustion scenarios may behave
+differently.
 
 **ARM64 musl note**: jemalloc automatically disables GCC outline atomics on ARM64
 + musl to prevent linker errors with `__getauxval` (which musl doesn't export).
@@ -144,14 +152,9 @@ This fix resolves https://github.com/jemalloc/jemalloc/issues/2782[GitHub issue
 
 ==== Cross-compilation with musl-tools (Ubuntu/Debian)
 
-**Note**: Ubuntu's `musl-gcc` wrapper has compatibility issues with autoconf's
-pointer size detection. For production musl builds, use Alpine Linux instead.
-
-If you need Ubuntu-based musl testing:
-
 [source,bash]
 ----
-# Install musl tools (has autoconf compatibility issues)
+# Install musl tools
 sudo apt-get install musl-tools musl-dev
 
 # May work for simple cases but not recommended
@@ -166,6 +169,11 @@ make
 * All threading and math functions integrated into musl libc (no separate libraries)
 * Smaller binary footprint and faster performance
 * Ideal for containers, embedded systems, and static linking
+
+**Known limitation**: C++ memory exhaustion tests (like
+`cpp/infallible_new_false`) may hang on Alpine/musl in containerized
+environments. This is due to differences in OOM behavior between musl and glibc.
+These tests are automatically skipped on musl builds.
 
 == Usage
 

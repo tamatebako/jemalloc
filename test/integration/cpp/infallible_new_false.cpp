@@ -3,6 +3,10 @@
 #include "test/jemalloc_test.h"
 
 TEST_BEGIN(test_failing_alloc) {
+#ifdef JEMALLOC_MUSL
+	/* Skip on musl - memory exhaustion test hangs in Alpine containers */
+	test_skip("Memory exhaustion test skipped on musl (hangs in containers)");
+#endif
 	bool saw_exception = false;
 	try {
 		/* Too big of an allocation to succeed. */

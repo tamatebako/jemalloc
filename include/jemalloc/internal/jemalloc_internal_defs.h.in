@@ -421,6 +421,9 @@
 /* glibc memalign hook. */
 #undef JEMALLOC_GLIBC_MEMALIGN_HOOK
 
+/* Defined if building against musl libc. */
+#undef JEMALLOC_MUSL
+
 /* pthread support */
 #undef JEMALLOC_HAVE_PTHREAD
 

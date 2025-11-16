@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 5.5.0)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate version
+        run: |
+          VERSION="${{ inputs.version }}"
+          if ! echo "$VERSION" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9]+)?$'; then
+            echo "Error: Invalid version format: $VERSION"
+            echo "Expected format: X.Y.Z or X.Y.Z-suffix (e.g., 5.5.0 or 5.5.0-tebako)"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Check if tag exists
+        run: |
+          if git rev-parse "${{ env.VERSION }}" >/dev/null 2>&1; then
+            echo "Error: Tag ${{ env.VERSION }} already exists"
+            exit 1
+          fi
+
+      - name: Extract release notes from ChangeLog
+        run: |
+          awk '/^\* [0-9]+\.[0-9]+\.[0-9]+/{if(seen++){exit}else{print}}  seen' ChangeLog > release-notes.txt
+          echo "Release notes extracted:"
+          cat release-notes.txt
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf
+
+      - name: Generate configure script
+        run: |
+          autoconf
+
+      - name: Create source tarball
+        run: |
+          TARBALL="jemalloc-${{ env.VERSION }}.tar.gz"
+          git archive --format=tar.gz --prefix=jemalloc-${{ env.VERSION }}/ -o "$TARBALL" HEAD
+          sha256sum "$TARBALL" > "$TARBALL.sha256"
+          echo "Created tarball: $TARBALL"
+          ls -lh "$TARBALL"*
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          name: jemalloc ${{ env.VERSION }}
+          body_path: release-notes.txt
+          draft: false
+          prerelease: ${{ inputs.prerelease }}
+          files: |
+            jemalloc-${{ env.VERSION }}.tar.gz
+            jemalloc-${{ env.VERSION }}.tar.gz.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "### Release Created Successfully! 🎉" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version**: ${{ env.VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag**: \`${{ env.VERSION }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Prerelease**: ${{ inputs.prerelease }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Artifacts**:" >> $GITHUB_STEP_SUMMARY
+          echo "- jemalloc-${{ env.VERSION }}.tar.gz" >> $GITHUB_STEP_SUMMARY
+          echo "- jemalloc-${{ env.VERSION }}.tar.gz.sha256" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Release URL**: https://github.com/${{ github.repository }}/releases/tag/${{ env.VERSION }}" >> $GITHUB_STEP_SUMMARY

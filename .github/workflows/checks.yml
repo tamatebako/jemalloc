@@ -1,9 +1,24 @@
 name: Quality Checks
 
 on:
-  pull_request:
   push:
     branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - '**.adoc'
+      - 'ChangeLog'
+      - 'COPYING'
+      - 'doc/**'
+      - 'doc_internal/**'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - '**.adoc'
+      - 'ChangeLog'
+      - 'COPYING'
+      - 'doc/**'
+      - 'doc_internal/**'
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

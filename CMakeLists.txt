@@ -1,0 +1,217 @@
+cmake_minimum_required(VERSION 3.24)
+
+# Extract version from VERSION file
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" JEMALLOC_VERSION_RAW)
+string(REGEX MATCH "^([0-9]+)\\.([0-9]+)\\.([0-9]+)" JEMALLOC_VERSION_MATCH "${JEMALLOC_VERSION_RAW}")
+set(JEMALLOC_VERSION_MAJOR "${CMAKE_MATCH_1}")
+set(JEMALLOC_VERSION_MINOR "${CMAKE_MATCH_2}")
+set(JEMALLOC_VERSION_PATCH "${CMAKE_MATCH_3}")
+set(JEMALLOC_VERSION "${JEMALLOC_VERSION_MAJOR}.${JEMALLOC_VERSION_MINOR}.${JEMALLOC_VERSION_PATCH}")
+
+project(jemalloc
+    VERSION ${JEMALLOC_VERSION}
+    DESCRIPTION "General purpose malloc implementation"
+    LANGUAGES C CXX
+)
+
+include(ExternalProject)
+include(GNUInstallDirs)
+
+# Options
+option(JEMALLOC_BUILD_SHARED "Build shared library" ON)
+option(JEMALLOC_BUILD_STATIC "Build static library" ON)
+option(JEMALLOC_ENABLE_DOC "Enable documentation" OFF)
+option(JEMALLOC_ENABLE_STATS "Enable statistics" ON)
+option(JEMALLOC_ENABLE_PROF "Enable profiling" OFF)
+
+# Platform detection
+if(WIN32)
+    set(JEMALLOC_PLATFORM "windows")
+    set(LIB_SUFFIX ".lib")
+    set(DLL_SUFFIX ".dll")
+    set(STATIC_LIB_PREFIX "")
+    set(SHARED_LIB_PREFIX "")
+elseif(APPLE)
+    set(JEMALLOC_PLATFORM "darwin")
+    set(LIB_SUFFIX ".a")
+    set(DLL_SUFFIX ".dylib")
+    set(STATIC_LIB_PREFIX "lib")
+    set(SHARED_LIB_PREFIX "lib")
+else()
+    set(JEMALLOC_PLATFORM "unix")
+    set(LIB_SUFFIX ".a")
+    set(DLL_SUFFIX ".so")
+    set(STATIC_LIB_PREFIX "lib")
+    set(SHARED_LIB_PREFIX "lib")
+endif()
+
+# Build directory for ExternalProject
+set(JEMALLOC_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/jemalloc-build")
+set(JEMALLOC_INSTALL_DIR "${CMAKE_CURRENT_BINARY_DIR}/jemalloc-install")
+
+# Configure arguments for autotools
+set(JEMALLOC_CONFIGURE_ARGS
+    --prefix=${JEMALLOC_INSTALL_DIR}
+    --disable-dependency-tracking
+)
+
+if(NOT JEMALLOC_BUILD_SHARED)
+    list(APPEND JEMALLOC_CONFIGURE_ARGS --disable-shared)
+endif()
+
+if(NOT JEMALLOC_BUILD_STATIC)
+    list(APPEND JEMALLOC_CONFIGURE_ARGS --disable-static)
+endif()
+
+if(NOT JEMALLOC_ENABLE_DOC)
+    list(APPEND JEMALLOC_CONFIGURE_ARGS --disable-doc)
+endif()
+
+if(NOT JEMALLOC_ENABLE_STATS)
+    list(APPEND JEMALLOC_CONFIGURE_ARGS --disable-stats)
+endif()
+
+if(JEMALLOC_ENABLE_PROF)
+    list(APPEND JEMALLOC_CONFIGURE_ARGS --enable-prof)
+endif()
+
+# Platform-specific configuration
+if(CMAKE_CROSSCOMPILING)
+    list(APPEND JEMALLOC_CONFIGURE_ARGS
+        --host=${CMAKE_SYSTEM_PROCESSOR}-${CMAKE_SYSTEM_NAME}
+    )
+endif()
+
+# Handle special cases for musl, ARM64, etc.
+if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+    # Check if musl
+    execute_process(
+        COMMAND ${CMAKE_C_COMPILER} -dumpmachine
+        OUTPUT_VARIABLE COMPILER_TUPLE
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    if(COMPILER_TUPLE MATCHES "musl")
+        message(STATUS "Detected musl libc")
+    endif()
+endif()
+
+# ExternalProject to wrap autotools build
+ExternalProject_Add(jemalloc_external
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}
+    BUILD_IN_SOURCE 0
+    BINARY_DIR ${JEMALLOC_BUILD_DIR}
+    CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/configure ${JEMALLOC_CONFIGURE_ARGS}
+    BUILD_COMMAND $(MAKE)
+    INSTALL_COMMAND $(MAKE) install
+    BUILD_BYPRODUCTS
+        ${JEMALLOC_INSTALL_DIR}/${CMAKE_INSTALL_LIBDIR}/${STATIC_LIB_PREFIX}jemalloc${LIB_SUFFIX}
+        ${JEMALLOC_INSTALL_DIR}/${CMAKE_INSTALL_LIBDIR}/${SHARED_LIB_PREFIX}jemalloc${DLL_SUFFIX}
+)
+
+# Create imported target for static library
+if(JEMALLOC_BUILD_STATIC)
+    add_library(jemalloc_static STATIC IMPORTED GLOBAL)
+    set_target_properties(jemalloc_static PROPERTIES
+        IMPORTED_LOCATION ${JEMALLOC_INSTALL_DIR}/${CMAKE_INSTALL_LIBDIR}/${STATIC_LIB_PREFIX}jemalloc${LIB_SUFFIX}
+        INTERFACE_INCLUDE_DIRECTORIES ${JEMALLOC_INSTALL_DIR}/${CMAKE_INSTALL_INCLUDEDIR}
+    )
+    add_dependencies(jemalloc_static jemalloc_external)
+
+    # Add pthread dependency on Unix
+    if(UNIX AND NOT APPLE)
+        find_package(Threads REQUIRED)
+        set_property(TARGET jemalloc_static APPEND PROPERTY
+            INTERFACE_LINK_LIBRARIES Threads::Threads
+        )
+    endif()
+endif()
+
+# Create imported target for shared library
+if(JEMALLOC_BUILD_SHARED)
+    add_library(jemalloc_shared SHARED IMPORTED GLOBAL)
+
+    if(WIN32)
+        set_target_properties(jemalloc_shared PROPERTIES
+            IMPORTED_LOCATION ${JEMALLOC_INSTALL_DIR}/bin/jemalloc${DLL_SUFFIX}
+            IMPORTED_IMPLIB ${JEMALLOC_INSTALL_DIR}/${CMAKE_INSTALL_LIBDIR}/jemalloc${LIB_SUFFIX}
+            INTERFACE_INCLUDE_DIRECTORIES ${JEMALLOC_INSTALL_DIR}/${CMAKE_INSTALL_INCLUDEDIR}
+        )
+    else()
+        set_target_properties(jemalloc_shared PROPERTIES
+            IMPORTED_LOCATION ${JEMALLOC_INSTALL_DIR}/${CMAKE_INSTALL_LIBDIR}/${SHARED_LIB_PREFIX}jemalloc${DLL_SUFFIX}
+            INTERFACE_INCLUDE_DIRECTORIES ${JEMALLOC_INSTALL_DIR}/${CMAKE_INSTALL_INCLUDEDIR}
+        )
+    endif()
+
+    add_dependencies(jemalloc_shared jemalloc_external)
+
+    # Add pthread dependency on Unix
+    if(UNIX AND NOT APPLE)
+        find_package(Threads REQUIRED)
+        set_property(TARGET jemalloc_shared APPEND PROPERTY
+            INTERFACE_LINK_LIBRARIES Threads::Threads
+        )
+    endif()
+endif()
+
+# Create jemalloc::jemalloc alias (prefer static if both enabled)
+if(JEMALLOC_BUILD_STATIC)
+    add_library(jemalloc::jemalloc ALIAS jemalloc_static)
+    set(JEMALLOC_LIBRARIES jemalloc_static)
+elseif(JEMALLOC_BUILD_SHARED)
+    add_library(jemalloc::jemalloc ALIAS jemalloc_shared)
+    set(JEMALLOC_LIBRARIES jemalloc_shared)
+endif()
+
+# Export variables for parent scope (when used via add_subdirectory)
+if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    set(JEMALLOC_INCLUDE_DIRS ${JEMALLOC_INSTALL_DIR}/${CMAKE_INSTALL_INCLUDEDIR} PARENT_SCOPE)
+    set(JEMALLOC_LIBRARIES ${JEMALLOC_LIBRARIES} PARENT_SCOPE)
+    set(JEMALLOC_FOUND TRUE PARENT_SCOPE)
+endif()
+
+# Installation (optional - for direct builds)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    # Only install if this is the top-level project
+    install(
+        DIRECTORY ${JEMALLOC_INSTALL_DIR}/
+        DESTINATION ${CMAKE_INSTALL_PREFIX}
+        USE_SOURCE_PERMISSIONS
+    )
+
+    # Install CMake config files
+    include(CMakePackageConfigHelpers)
+
+    configure_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/JemallocConfig.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/JemallocConfig.cmake
+        @ONLY
+    )
+
+    write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/JemallocConfigVersion.cmake
+        VERSION ${JEMALLOC_VERSION}
+        COMPATIBILITY SameMajorVersion
+    )
+
+    install(
+        FILES
+            ${CMAKE_CURRENT_BINARY_DIR}/JemallocConfig.cmake
+            ${CMAKE_CURRENT_BINARY_DIR}/JemallocConfigVersion.cmake
+            ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindJemalloc.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/jemalloc
+    )
+endif()
+
+# Print configuration summary
+message(STATUS "")
+message(STATUS "jemalloc configuration:")
+message(STATUS "  Version: ${JEMALLOC_VERSION}")
+message(STATUS "  Platform: ${JEMALLOC_PLATFORM}")
+message(STATUS "  Build shared: ${JEMALLOC_BUILD_SHARED}")
+message(STATUS "  Build static: ${JEMALLOC_BUILD_STATIC}")
+message(STATUS "  Enable doc: ${JEMALLOC_ENABLE_DOC}")
+message(STATUS "  Enable stats: ${JEMALLOC_ENABLE_STATS}")
+message(STATUS "  Enable prof: ${JEMALLOC_ENABLE_PROF}")
+message(STATUS "  Install dir: ${JEMALLOC_INSTALL_DIR}")
+message(STATUS "")

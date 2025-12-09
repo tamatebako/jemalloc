@@ -125,15 +125,33 @@ if(CMAKE_SYSTEM_NAME MATCHES "Linux")
     endif()
 endif()
 
-# ExternalProject to wrap autotools build
-ExternalProject_Add(jemalloc_external
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}
-    BUILD_IN_SOURCE 0
-    BINARY_DIR ${JEMALLOC_BUILD_DIR}
-    CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/configure ${JEMALLOC_CONFIGURE_ARGS}
-    BUILD_COMMAND $(MAKE)
-    INSTALL_COMMAND $(MAKE) install
-    BUILD_BYPRODUCTS
+# Find make executable
+find_program(MAKE_EXECUTABLE NAMES gmake make REQUIRED)
+message(STATUS "Using make: ${MAKE_EXECUTABLE}")
+
+# Custom target approach to avoid ExternalProject's $(MAKE) insertion
+add_custom_command(
+    OUTPUT ${JEMALLOC_BUILD_DIR}/Makefile
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/configure ${JEMALLOC_CONFIGURE_ARGS}
+    WORKING_DIRECTORY ${JEMALLOC_BUILD_DIR}
+    COMMENT "Configuring jemalloc"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT
+        ${JEMALLOC_INSTALL_DIR}/${CMAKE_INSTALL_LIBDIR}/${STATIC_LIB_PREFIX}jemalloc${LIB_SUFFIX}
+        ${JEMALLOC_INSTALL_DIR}/${CMAKE_INSTALL_LIBDIR}/${SHARED_LIB_PREFIX}jemalloc${DLL_SUFFIX}
+    COMMAND ${MAKE_EXECUTABLE}
+    COMMAND ${MAKE_EXECUTABLE} install
+    WORKING_DIRECTORY ${JEMALLOC_BUILD_DIR}
+    DEPENDS ${JEMALLOC_BUILD_DIR}/Makefile
+    COMMENT "Building and installing jemalloc"
+    VERBATIM
+)
+
+add_custom_target(jemalloc_external
+    DEPENDS
         ${JEMALLOC_INSTALL_DIR}/${CMAKE_INSTALL_LIBDIR}/${STATIC_LIB_PREFIX}jemalloc${LIB_SUFFIX}
         ${JEMALLOC_INSTALL_DIR}/${CMAKE_INSTALL_LIBDIR}/${SHARED_LIB_PREFIX}jemalloc${DLL_SUFFIX}
 )

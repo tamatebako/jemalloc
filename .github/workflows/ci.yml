@@ -1,5 +1,10 @@
 name: CI
 
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
 on:
   push:
     branches: [ main ]
@@ -719,11 +724,10 @@ jobs:
       - name: Run tests
         run: make check
 
-  # CMake Integration Testing
+  # Level 1: CMake Integration Testing (runs immediately, part of smoke tests)
   test-cmake-builds:
     name: CMake - ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    needs: basic-platforms
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -846,11 +850,10 @@ jobs:
           cmake --build build --config Release
           ctest --test-dir build --output-on-failure
 
-  # vcpkg Integration Testing
+  # Level 1: vcpkg Integration Testing (runs immediately, part of smoke tests)
   test-vcpkg-integration:
     name: vcpkg - ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    needs: basic-platforms
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -858,6 +861,8 @@ jobs:
         include:
           - name: Ubuntu x64
             os: ubuntu-24.04
+          - name: Windows x64
+            os: windows-2022
           - name: macOS ARM64
             os: macos-15
 
@@ -883,6 +888,12 @@ jobs:
             brew install cmake
           fi
 
+      # Windows dependencies
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
+        run: |
+          choco install cmake git --installargs 'ADD_CMAKE_TO_PATH=System' -y
+
       # Bootstrap vcpkg
       - name: Bootstrap vcpkg
         run: |
@@ -899,8 +910,56 @@ jobs:
           cd vcpkg
           ./vcpkg install jemalloc --overlay-ports=${{ github.workspace }}/ports
 
-      # Create and test integration project
-      - name: Test vcpkg integration
+      # Create and test integration project (Windows)
+      - name: Test vcpkg integration (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          echo "==> Creating test project"
+          New-Item -ItemType Directory -Force -Path vcpkg-test
+          Set-Location vcpkg-test
+
+          # Create main.c
+          @"
+          #include <jemalloc/jemalloc.h>
+          #include <stdio.h>
+
+          int main(void) {
+              void* ptr = malloc(1024);
+              if (!ptr) {
+                  fprintf(stderr, "malloc failed\n");
+                  return 1;
+              }
+              printf("jemalloc allocation successful\n");
+              free(ptr);
+              return 0;
+          }
+          "@ | Out-File -FilePath main.c -Encoding ASCII
+
+          # Create CMakeLists.txt
+          @"
+          cmake_minimum_required(VERSION 3.24)
+          project(vcpkg_test C)
+
+          find_package(jemalloc CONFIG REQUIRED)
+
+          add_executable(test_app main.c)
+          target_link_libraries(test_app PRIVATE jemalloc::jemalloc)
+
+          enable_testing()
+          add_test(NAME vcpkg_integration_test COMMAND test_app)
+          "@ | Out-File -FilePath CMakeLists.txt -Encoding ASCII
+
+          echo "==> Building test project"
+          cmake -B build -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+          cmake --build build --config Release
+
+          echo "==> Running test"
+          ctest --test-dir build -C Release --output-on-failure
+
+      # Create and test integration project (Unix)
+      - name: Test vcpkg integration (Unix)
+        if: runner.os != 'Windows'
         run: |
           echo "==> Creating test project"
           mkdir -p vcpkg-test

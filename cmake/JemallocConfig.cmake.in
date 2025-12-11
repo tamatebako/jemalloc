@@ -3,6 +3,11 @@
 
 @PACKAGE_INIT@
 
+# Debug output to understand find_package failure
+message(STATUS "=== jemalloc Config Debug ===")
+message(STATUS "Config file location: ${CMAKE_CURRENT_LIST_FILE}")
+message(STATUS "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}")
+
 # Provide package variables
 set(jemalloc_VERSION "@JEMALLOC_VERSION@")
 set(jemalloc_VERSION_MAJOR "@JEMALLOC_VERSION_MAJOR@")
@@ -13,37 +18,55 @@ set(jemalloc_VERSION_PATCH "@JEMALLOC_VERSION_PATCH@")
 get_filename_component(jemalloc_CMAKE_DIR "${CMAKE_CURRENT_LIST_FILE}" PATH)
 get_filename_component(jemalloc_PREFIX "${jemalloc_CMAKE_DIR}/../../../" ABSOLUTE)
 
+message(STATUS "jemalloc_CMAKE_DIR: ${jemalloc_CMAKE_DIR}")
+message(STATUS "jemalloc_PREFIX: ${jemalloc_PREFIX}")
+
 # Set include and library directories
 set_and_check(jemalloc_INCLUDE_DIR "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
 set_and_check(jemalloc_LIBRARY_DIR "@PACKAGE_CMAKE_INSTALL_LIBDIR@")
 
+message(STATUS "jemalloc_INCLUDE_DIR: ${jemalloc_INCLUDE_DIR}")
+message(STATUS "jemalloc_LIBRARY_DIR: ${jemalloc_LIBRARY_DIR}")
+
 # Find dependencies required by jemalloc
+# Threads is needed because JEMALLOC_PLATFORM_LIBS may include Threads::Threads
+# which gets exported in the target's link interface
 include(CMakeFindDependencyMacro)
-find_dependency(Threads)
+find_dependency(Threads REQUIRED)
+
+message(STATUS "About to include: ${CMAKE_CURRENT_LIST_DIR}/JemallocTargets.cmake")
 
 # Import targets
 include("${CMAKE_CURRENT_LIST_DIR}/JemallocTargets.cmake")
+
+message(STATUS "Targets file included successfully")
 
 # Check which targets are available
 set(jemalloc_LIBRARIES "")
 if(TARGET jemalloc::jemalloc_static)
     list(APPEND jemalloc_LIBRARIES jemalloc::jemalloc_static)
+    message(STATUS "Found target: jemalloc::jemalloc_static")
 endif()
 if(TARGET jemalloc::jemalloc_shared)
     list(APPEND jemalloc_LIBRARIES jemalloc::jemalloc_shared)
+    message(STATUS "Found target: jemalloc::jemalloc_shared")
 endif()
 
 # Main target alias
 if(NOT TARGET jemalloc::jemalloc)
     if(TARGET jemalloc::jemalloc_static)
         add_library(jemalloc::jemalloc ALIAS jemalloc::jemalloc_static)
+        message(STATUS "Created alias: jemalloc::jemalloc -> jemalloc::jemalloc_static")
     elseif(TARGET jemalloc::jemalloc_shared)
         add_library(jemalloc::jemalloc ALIAS jemalloc::jemalloc_shared)
+        message(STATUS "Created alias: jemalloc::jemalloc -> jemalloc::jemalloc_shared")
     endif()
 endif()
 
 # Standard find_package variables
 set(jemalloc_FOUND TRUE)
 set(jemalloc_INCLUDE_DIRS ${jemalloc_INCLUDE_DIR})
+
+message(STATUS "=== jemalloc Config Complete ===")
 
 check_required_components(jemalloc)

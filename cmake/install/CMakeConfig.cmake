@@ -1,6 +1,7 @@
 # CMakeConfig.cmake
 # Generate and install CMake package configuration files
 
+include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
 # Create package configuration file from template

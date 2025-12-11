@@ -29,14 +29,17 @@ function(jemalloc_configure_common_target target)
     # Suppress -Wundef for C++ feature test macros in jemalloc_cpp.cpp
     # These macros (__cpp_sized_deallocation, __cpp_aligned_new) may not be
     # defined if compiler doesn't fully support C++14/17
-    get_target_property(target_sources ${target} SOURCES)
-    foreach(source ${target_sources})
-        if(source MATCHES "jemalloc_cpp\\.cpp$")
-            set_source_files_properties(${source} PROPERTIES
-                COMPILE_FLAGS "-Wno-undef"
-            )
-        endif()
-    endforeach()
+    # Note: Only for GCC/Clang, MSVC doesn't support -Wno- flags
+    if(NOT MSVC)
+        get_target_property(target_sources ${target} SOURCES)
+        foreach(source ${target_sources})
+            if(source MATCHES "jemalloc_cpp\\.cpp$")
+                set_source_files_properties(${source} PROPERTIES
+                    COMPILE_FLAGS "-Wno-undef"
+                )
+            endif()
+        endforeach()
+    endif()
 
     # macOS-specific
     if(APPLE)

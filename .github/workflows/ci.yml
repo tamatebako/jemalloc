@@ -104,12 +104,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Linux setup
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build
+      # Install CMake and Ninja using lukka/get-cmake (works on all platforms including ARM64)
+      - name: Get CMake and Ninja
+        uses: lukka/get-cmake@latest
 
       # Windows MSVC.setup (autoconf+make with cl.exe via PATH inheritance)
       - name: Setup MSVC
@@ -130,7 +127,7 @@ jobs:
             ninja
             make
 
-      # Windows MinGW setup (autoconf/configure)
+      # Windows MinGW setup (runs in MSYS2 shell, needs MSYS2's cmake/ninja)
       - name: Setup_MSYS2 MinGW
         if: runner.os == 'Windows' && matrix.mingw != ''
         uses: msys2/setup-msys2@v2
@@ -142,15 +139,6 @@ jobs:
             ninja
             make
             ${{ matrix.mingw == 'MINGW64' && 'mingw-w64-x86_64-gcc mingw-w64-x86_64-binutils' || 'mingw-w64-i686-gcc mingw-w64-i686-binutils' }}
-
-      # macOS setup
-      - name: Install macOS dependencies
-        if: runner.os == 'macOS'
-        run: |
-          # Install cmake if not present
-          if ! which cmake > /dev/null 2>&1; then
-            brew install cmake ninja
-          fi
 
       # Configure - Linux/macOS
       - name: Configure (Linux/macOS)
@@ -521,7 +509,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build
+          sudo apt-get install -y ninja-build
 
       - name: Build and test
         env:
@@ -606,10 +594,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install CMake and Ninja using lukka/get-cmake
+        uses: lukka/get-cmake@latest
+
+      - name: Install 32-bit dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build gcc-multilib g++-multilib
+          sudo apt-get install -y gcc-multilib g++-multilib
 
       - name: Build and test
         run: |
@@ -675,7 +666,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build
+          sudo apt-get install -y ninja-build
 
       - name: Build and test
         env:
@@ -861,6 +852,15 @@ jobs:
       - name: Get CMake and Ninja
         uses: lukka/get-cmake@latest
 
+      # Linux/macOS: Install basic build dependencies
+      - name: Install build dependencies
+        if: runner.os != 'Windows'
+        run: |
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            sudo apt-get update
+            sudo apt-get install -y build-essential
+          fi
+
       # Windows: Setup MSVC compiler
       - name: Setup MSVC
         if: runner.os == 'Windows'
@@ -880,32 +880,49 @@ jobs:
       # Test find_package() integration
       - name: Test find_package() integration
         if: matrix.cmake_preset == 'find_package'
+        shell: bash
         run: |
           echo "==> Testing find_package() integration"
           cd test/cmake/find_package
-          cmake -B build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install -DCMAKE_BUILD_TYPE=Release
+          # Use forward slashes for bash compatibility on all platforms including Windows
+          PREFIX_PATH="${{ github.workspace }}/install"
+          cmake -B build -DCMAKE_PREFIX_PATH="${PREFIX_PATH}" -DCMAKE_BUILD_TYPE=Release
           cmake --build build --config Release
-          ctest --test-dir build --output-on-failure
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            ctest --test-dir build -C Release --output-on-failure
+          else
+            ctest --test-dir build --output-on-failure
+          fi
 
       # Test add_subdirectory() integration
       - name: Test add_subdirectory() integration
         if: matrix.test_subdirectory
+        shell: bash
         run: |
           echo "==> Testing add_subdirectory() integration"
           cd test/cmake/add_subdirectory
           cmake -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build --config Release
-          ctest --test-dir build --output-on-failure
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            ctest --test-dir build -C Release --output-on-failure
+          else
+            ctest --test-dir build --output-on-failure
+          fi
 
       # Test FetchContent integration
       - name: Test FetchContent integration
         if: matrix.test_fetchcontent
+        shell: bash
         run: |
           echo "==> Testing FetchContent integration"
           cd test/cmake/fetchcontent
           cmake -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build --config Release
-          ctest --test-dir build --output-on-failure
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            ctest --test-dir build -C Release --output-on-failure
+          else
+            ctest --test-dir build --output-on-failure
+          fi
 
   # Level 1: vcpkg Integration Testing (runs immediately, part of smoke tests)
   test-vcpkg-integration:
@@ -933,29 +950,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Linux dependencies
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y autoconf cmake git curl zip unzip tar
+      # Install CMake and Ninja using lukka/get-cmake (works on all platforms including ARM64)
+      - name: Get CMake and Ninja
+        uses: lukka/get-cmake@latest
 
-      # macOS dependencies
-      - name: Install macOS dependencies
-        if: runner.os == 'macOS'
+      # Linux/macOS: Install basic build dependencies
+      - name: Install build dependencies
+        if: runner.os != 'Windows'
         run: |
-          if ! which autoconf > /dev/null 2>&1; then
-            brew install autoconf
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            sudo apt-get update
+            sudo apt-get install -y build-essential
           fi
-          if ! which cmake > /dev/null 2>&1; then
-            brew install cmake
-          fi
-
-      # Windows dependencies
-      - name: Install Windows dependencies
-        if: runner.os == 'Windows'
-        run: |
-          choco install git --installargs 'ADD_CMAKE_TO_PATH=System' -y
 
       # Windows: Setup MSVC compiler (required for vcpkg builds)
       - name: Setup MSVC
@@ -1023,7 +1029,7 @@ jobs:
           "@ | Out-File -FilePath CMakeLists.txt -Encoding ASCII
 
           echo "==> Building test project"
-          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
+          cmake -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
           cmake --build build --config Release
 
           echo "==> Running test"
@@ -1069,8 +1075,8 @@ jobs:
           EOF
 
           echo "==> Building test project"
-          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
-          cmake --build build
+          cmake -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
+          cmake --build build --config Release
 
           echo "==> Running test"
-          ctest --test-dir build --output-on-failure
+          ctest --test-dir build -C Release --output-on-failure

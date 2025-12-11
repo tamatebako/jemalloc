@@ -4,7 +4,13 @@
 #include "jemalloc/internal/jemalloc_preamble.h"
 
 #define JEMALLOC_U8_ATOMICS
-#if defined(JEMALLOC_GCC_ATOMIC_ATOMICS)
+#if defined(__cplusplus) && (defined(__GNUC__) || defined(__clang__))
+	/* C++ must use GCC atomics, not C11 atomics (_Atomic is C-only) */
+#	include "jemalloc/internal/atomic_gcc_atomic.h"
+#	if !defined(JEMALLOC_GCC_U8_ATOMIC_ATOMICS)
+#		undef JEMALLOC_U8_ATOMICS
+#	endif
+#elif defined(JEMALLOC_GCC_ATOMIC_ATOMICS)
 #	include "jemalloc/internal/atomic_gcc_atomic.h"
 #	if !defined(JEMALLOC_GCC_U8_ATOMIC_ATOMICS)
 #		undef JEMALLOC_U8_ATOMICS

@@ -65,7 +65,9 @@
 #  define JEMALLOC_ALLOC_SIZE(s)
 #  define JEMALLOC_ALLOC_SIZE2(s1, s2)
 #  ifndef JEMALLOC_EXPORT
-#    ifdef DLLEXPORT
+#    ifdef JEMALLOC_STATIC
+#      define JEMALLOC_EXPORT
+#    elif defined(DLLEXPORT)
 #      define JEMALLOC_EXPORT __declspec(dllexport)
 #    else
 #      define JEMALLOC_EXPORT __declspec(dllimport)

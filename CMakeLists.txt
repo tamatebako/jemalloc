@@ -100,8 +100,15 @@ if(JEMALLOC_BUILD_STATIC)
     # Compile definitions
     target_compile_definitions(jemalloc_static PRIVATE
         JEMALLOC_DEBUG=$<CONFIG:Debug>
+        $<$<BOOL:${JEMALLOC_ENABLE_PROF}>:JEMALLOC_PROF>
+        $<$<BOOL:${JEMALLOC_ENABLE_STATS}>:JEMALLOC_STATS>
         ${JEMALLOC_PLATFORM_DEFINITIONS}
     )
+
+    # Windows static library - define JEMALLOC_STATIC to avoid dllimport
+    if(WIN32)
+        target_compile_definitions(jemalloc_static PUBLIC JEMALLOC_STATIC)
+    endif()
 
     # Platform compile options
     if(JEMALLOC_PLATFORM_COMPILE_OPTIONS)
@@ -110,7 +117,7 @@ if(JEMALLOC_BUILD_STATIC)
 
     # Platform libraries
     if(JEMALLOC_PLATFORM_LIBS)
-        target_link_libraries(jemalloc_static PUBLIC ${JEMALLOC_PLATFORM_LIBS})
+        target_link_libraries(jemalloc_static PRIVATE ${JEMALLOC_PLATFORM_LIBS})
     endif()
 endif()
 
@@ -140,6 +147,8 @@ if(JEMALLOC_BUILD_SHARED)
     # Compile definitions
     target_compile_definitions(jemalloc_shared PRIVATE
         JEMALLOC_DEBUG=$<CONFIG:Debug>
+        $<$<BOOL:${JEMALLOC_ENABLE_PROF}>:JEMALLOC_PROF>
+        $<$<BOOL:${JEMALLOC_ENABLE_STATS}>:JEMALLOC_STATS>
         ${JEMALLOC_PLATFORM_DEFINITIONS}
     )
 
@@ -151,14 +160,13 @@ if(JEMALLOC_BUILD_SHARED)
     # Windows DLL export/import
     if(WIN32)
         target_compile_definitions(jemalloc_shared
-            PRIVATE JEMALLOC_EXPORT
-            INTERFACE JEMALLOC_IMPORT
+            PRIVATE DLLEXPORT
         )
     endif()
 
     # Platform libraries
     if(JEMALLOC_PLATFORM_LIBS)
-        target_link_libraries(jemalloc_shared PUBLIC ${JEMALLOC_PLATFORM_LIBS})
+        target_link_libraries(jemalloc_shared PRIVATE ${JEMALLOC_PLATFORM_LIBS})
     endif()
 endif()
 

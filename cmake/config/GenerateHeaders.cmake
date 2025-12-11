@@ -32,13 +32,29 @@ bool_to_int(JEMALLOC_HAVE_MMAP)
 bool_to_int(JEMALLOC_HAVE_MADVISE)
 bool_to_int(JEMALLOC_HAVE_MADV_DONTNEED)
 bool_to_int(JEMALLOC_HAVE_MADV_FREE)
-bool_to_int(JEMALLOC_TLS)
+# CRITICAL: Force JEMALLOC_TLS=0 for ALL Windows (MSVC + MinGW)
+# Reason: tsd.c and tsd.h have different check orders
+# tsd.h checks _WIN32 BEFORE JEMALLOC_TLS → selects tsd_win.h
+# tsd.c checks JEMALLOC_TLS BEFORE _WIN32 → would select pthread TSD if JEMALLOC_TLS=1
+# Both must consistently use tsd_win.h on Windows to avoid macro expansion errors
+if(JEMALLOC_IS_WINDOWS)
+    set(JEMALLOC_TLS 0)
+    message(STATUS "Windows detected (JEMALLOC_IS_WINDOWS=${JEMALLOC_IS_WINDOWS}): Forcing JEMALLOC_TLS=0 (using tsd_win.h)")
+else()
+    bool_to_int(JEMALLOC_TLS)
+endif()
 bool_to_int(JEMALLOC_HAVE_BUILTIN_UNREACHABLE)
 bool_to_int(JEMALLOC_HAVE_FFS)
 bool_to_int(JEMALLOC_HAVE_BUILTIN_FFS)
 bool_to_int(JEMALLOC_HAVE_BUILTIN_FFSL)
 bool_to_int(JEMALLOC_HAVE_BUILTIN_FFSLL)
 bool_to_int(JEMALLOC_HAVE_BUILTIN_CLZ)
+
+# On Windows, JEMALLOC_TLS is set but not #defined as a preprocessor macro
+# (This is different from setting a value for JEMALLOC_TLS_MODEL)
+# We must use the value of JEMALLOC_TLS here directly.
+set(JEMALLOC_TLS_VALUE ${JEMALLOC_TLS})
+string(TOUPPER "${JEMALLOC_TLS_VALUE}" JEMALLOC_TLS_VALUE_UPPER)
 
 # ============================================================================
 # Template Variables (from configure.ac)
@@ -208,7 +224,7 @@ set(JEMALLOC_FILL 1)  # Memory filling support
 set(JEMALLOC_LAZY_LOCK 0)  # Not used on modern systems
 
 # JEMALLOC_TLS_MODEL for __thread variables
-if(NOT WIN32)
+if(NOT JEMALLOC_IS_WINDOWS)
     set(JEMALLOC_TLS_MODEL "__attribute__((tls_model(\"initial-exec\")))")
 else()
     set(JEMALLOC_TLS_MODEL "")
@@ -361,7 +377,15 @@ string(REGEX REPLACE "#undef JEMALLOC_LAZY_LOCK\n" "/* #undef JEMALLOC_LAZY_LOCK
 if(JEMALLOC_TLS_MODEL)
     string(REGEX REPLACE "#undef JEMALLOC_TLS_MODEL\n" "#define JEMALLOC_TLS_MODEL ${JEMALLOC_TLS_MODEL}\n" INTERNAL_DEFS_CONTENT "${INTERNAL_DEFS_CONTENT}")
 endif()
-string(REGEX REPLACE "#undef JEMALLOC_TLS\n" "#define JEMALLOC_TLS ${JEMALLOC_TLS}\n" INTERNAL_DEFS_CONTENT "${INTERNAL_DEFS_CONTENT}")
+
+# JEMALLOC_TLS - only define if 1, leave #undef if 0
+# CRITICAL: tsd.h uses #elif (defined(JEMALLOC_TLS)), so defining as 0 would select wrong implementation
+if(JEMALLOC_TLS)
+    string(REGEX REPLACE "#undef JEMALLOC_TLS\n" "#define JEMALLOC_TLS\n" INTERNAL_DEFS_CONTENT "${INTERNAL_DEFS_CONTENT}")
+else()
+    string(REGEX REPLACE "#undef JEMALLOC_TLS\n" "/* #undef JEMALLOC_TLS */\n" INTERNAL_DEFS_CONTENT "${INTERNAL_DEFS_CONTENT}")
+endif()
+
 string(REGEX REPLACE "#undef JEMALLOC_CODE_COVERAGE\n" "/* #undef JEMALLOC_CODE_COVERAGE */\n" INTERNAL_DEFS_CONTENT "${INTERNAL_DEFS_CONTENT}")
 if(JEMALLOC_PRIVATE_NAMESPACE)
     string(REGEX REPLACE "#undef JEMALLOC_PRIVATE_NAMESPACE\n" "#define JEMALLOC_PRIVATE_NAMESPACE ${JEMALLOC_PRIVATE_NAMESPACE}\n" INTERNAL_DEFS_CONTENT "${INTERNAL_DEFS_CONTENT}")
@@ -399,7 +423,7 @@ endif()
 if(JEMALLOC_HAVE_BUILTIN_UNREACHABLE)
     string(REGEX REPLACE "#undef JEMALLOC_INTERNAL_UNREACHABLE\n" "#define JEMALLOC_INTERNAL_UNREACHABLE __builtin_unreachable\n" INTERNAL_DEFS_CONTENT "${INTERNAL_DEFS_CONTENT}")
 elseif(CMAKE_C_COMPILER_ID MATCHES "MSVC")
-    string(REGEX REPLACE "#undef JEMALLOC_INTERNAL_UNREACHABLE\n" "#define JEMALLOC_INTERNAL_UNREACHABLE __assume\n" INTERNAL_DEFS_CONTENT "${INTERNAL_DEFS_CONTENT}")
+    string(REGEX REPLACE "#undef JEMALLOC_INTERNAL_UNREACHABLE\n" "#define JEMALLOC_INTERNAL_UNREACHABLE() __assume(0)\n" INTERNAL_DEFS_CONTENT "${INTERNAL_DEFS_CONTENT}")
 else()
     # Fallback: use abort() as unreachable marker
     string(REGEX REPLACE "#undef JEMALLOC_INTERNAL_UNREACHABLE\n" "#define JEMALLOC_INTERNAL_UNREACHABLE abort\n" INTERNAL_DEFS_CONTENT "${INTERNAL_DEFS_CONTENT}")
@@ -446,6 +470,14 @@ configure_file(
     "${JEMALLOC_INCLUDE_DIR}/jemalloc/jemalloc_macros.h"
     @ONLY
 )
+
+# Post-process jemalloc_macros.h to define JEMALLOC_HAVE_ATTR if detected
+if(JEMALLOC_HAVE_ATTR)
+    file(READ "${JEMALLOC_INCLUDE_DIR}/jemalloc/jemalloc_macros.h" MACROS_CONTENT)
+    # Add #define JEMALLOC_HAVE_ATTR 1 at the top after initial includes
+    string(REGEX REPLACE "(#include <limits.h>)" "\\1\n#define JEMALLOC_HAVE_ATTR 1" MACROS_CONTENT "${MACROS_CONTENT}")
+    file(WRITE "${JEMALLOC_INCLUDE_DIR}/jemalloc/jemalloc_macros.h" "${MACROS_CONTENT}")
+endif()
 
 configure_file(
     "${JEMALLOC_ROOT_DIR}/include/jemalloc/jemalloc_protos.h.in"
@@ -577,6 +609,37 @@ endif()
 # Export include directory to parent scope
 set(JEMALLOC_GENERATED_INCLUDE_DIR "${JEMALLOC_INCLUDE_DIR}" PARENT_SCOPE)
 set(JEMALLOC_GENERATED_INCLUDE_DIR "${JEMALLOC_INCLUDE_DIR}")
+
+# Debug output for Windows platforms
+if(WIN32)
+    message(STATUS "")
+    message(STATUS "=== Windows Header Generation Debug ===")
+    message(STATUS "WIN32: ${WIN32}")
+    message(STATUS "MINGW: ${MINGW}")
+    message(STATUS "MSVC: ${MSVC}")
+    message(STATUS "CMAKE_C_COMPILER_ID: ${CMAKE_C_COMPILER_ID}")
+    message(STATUS "JEMALLOC_HAVE_ATTR: ${JEMALLOC_HAVE_ATTR}")
+    message(STATUS "JEMALLOC_TLS: ${JEMALLOC_TLS}")
+    message(STATUS "JEMALLOC_PLATFORM: ${JEMALLOC_PLATFORM}")
+
+    # Check if JEMALLOC_HAVE_ATTR was defined in jemalloc_macros.h
+    if(EXISTS "${JEMALLOC_INCLUDE_DIR}/jemalloc/jemalloc_macros.h")
+        file(READ "${JEMALLOC_INCLUDE_DIR}/jemalloc/jemalloc_macros.h" MACROS_CHECK)
+        if(MACROS_CHECK MATCHES "JEMALLOC_HAVE_ATTR")
+            message(STATUS "JEMALLOC_HAVE_ATTR FOUND in jemalloc_macros.h")
+        else()
+            message(STATUS "JEMALLOC_HAVE_ATTR NOT FOUND in jemalloc_macros.h")
+        endif()
+        if(MACROS_CHECK MATCHES "#define JEMALLOC_ATTR")
+            message(STATUS "JEMALLOC_ATTR definition found")
+        endif()
+        if(MACROS_CHECK MATCHES "#define JEMALLOC_SECTION")
+            message(STATUS "JEMALLOC_SECTION definition found")
+        endif()
+    endif()
+    message(STATUS "======================================")
+    message(STATUS "")
+endif()
 
 message(STATUS "")
 message(STATUS "Native CMake Header Generation Complete:")

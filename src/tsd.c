@@ -475,7 +475,7 @@ malloc_tsd_boot1(void) {
 	tsd_slow_update(tsd);
 }
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(JEMALLOC_TLS)
 static BOOL WINAPI
 _tls_callback(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
 	switch (fdwReason) {

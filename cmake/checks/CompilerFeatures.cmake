@@ -92,14 +92,6 @@ check_c_source_compiles("
     int main() { return x; }
 " JEMALLOC_TLS)
 
-# MSVC-specific: __declspec(thread)
-if(MSVC)
-    check_c_source_compiles("
-        __declspec(thread) int x;
-        int main() { return x; }
-    " JEMALLOC_TLS_MODEL)
-endif()
-
 # C11 _Static_assert
 check_c_source_compiles("
     _Static_assert(1, \"test\");
@@ -198,3 +190,7 @@ set(JEMALLOC_C11_ATOMICS "${JEMALLOC_C11_ATOMICS}")
 set(JEMALLOC_GCC_ATOMIC_INTRINSICS "${JEMALLOC_GCC_ATOMIC_INTRINSICS}")
 set(JEMALLOC_GCC_SYNC_INTRINSICS "${JEMALLOC_GCC_SYNC_INTRINSICS}")
 set(JEMALLOC_TLS "${JEMALLOC_TLS}")
+set(JEMALLOC_HAVE_BUILTIN_FFS "${JEMALLOC_HAVE_BUILTIN_FFS}")
+set(JEMALLOC_HAVE_FFS "${JEMALLOC_HAVE_FFS}")
+set(JEMALLOC_HAVE_MSVC_INTRINSICS "${JEMALLOC_HAVE_MSVC_INTRINSICS}")
+set(JEMALLOC_HAVE_BUILTIN_CLZ "${JEMALLOC_HAVE_BUILTIN_CLZ}")

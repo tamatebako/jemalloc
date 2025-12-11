@@ -10,6 +10,45 @@
 #	error JEMALLOC_INTERNAL_FFS{,L,LL} should have been defined by configure
 #endif
 
+#ifdef _MSC_VER
+/* MSVC doesn't have ffs/ffsl/ffsll, so we implement them using _BitScanForward */
+#include <intrin.h>
+
+static inline int
+ffs_impl(int x) {
+	unsigned long index;
+	return _BitScanForward(&index, (unsigned long)x) ? (int)(index + 1) : 0;
+}
+
+static inline int
+ffsl_impl(long x) {
+	unsigned long index;
+	return _BitScanForward(&index, (unsigned long)x) ? (int)(index + 1) : 0;
+}
+
+#if LG_SIZEOF_PTR == 3
+static inline int
+ffsll_impl(long long x) {
+	unsigned long index;
+	return _BitScanForward64(&index, (unsigned long long)x) ? (int)(index + 1) : 0;
+}
+#else
+static inline int
+ffsll_impl(long long x) {
+	unsigned long index;
+	/* Check low 32 bits first */
+	if (_BitScanForward(&index, (unsigned long)x)) {
+		return (int)(index + 1);
+	}
+	/* Check high 32 bits */
+	if (_BitScanForward(&index, (unsigned long)(x >> 32))) {
+		return (int)(index + 33);
+	}
+	return 0;
+}
+#endif
+#endif /* _MSC_VER */
+
 /*
  * Unlike the builtins and posix ffs functions, our ffs requires a non-zero
  * input, and returns the position of the lowest bit set (as opposed to the

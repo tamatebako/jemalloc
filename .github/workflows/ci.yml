@@ -280,8 +280,8 @@ jobs:
 
       - name: Build and test with CMake
         env:
-          CC: ${{ matrix.cc }}
-          CXX: ${{ matrix.cxx }}
+          CC: ${{ matrix.compiler == 'clang' && 'clang' || 'gcc' }}
+          CXX: ${{ matrix.compiler == 'clang' && 'clang++' || 'g++' }}
         run: |
           # Translate configure flags to CMake options
           CMAKE_FLAGS=""
@@ -761,23 +761,50 @@ jobs:
           apk update
           apk add cmake make gcc g++ clang musl-dev linux-headers ninja
 
-      - name: Configure
+      - name: Build and test with CMake
         env:
           CC: ${{ matrix.compiler == 'clang' && 'clang' || 'gcc' }}
           CXX: ${{ matrix.compiler == 'clang' && 'clang++' || 'g++' }}
-          EXTRA_CFLAGS: ${{ matrix.compiler == 'clang' && '-Werror -Wno-array-bounds -Wno-non-literal-null-conversion' || '-Werror -Wno-array-bounds' }}
         run: |
-          autoconf
-          ./configure --disable-cxx ${{ matrix.flags }}
+          # Translate configure flags to CMake options
+          CMAKE_FLAGS=""
 
-      - name: Build
-        run: make -j$(nproc)
+          # Build type
+          if echo "${{ matrix.flags }}" | grep -q -- "--enable-debug"; then
+            CMAKE_FLAGS="$CMAKE_FLAGS -DCMAKE_BUILD_TYPE=Debug"
+          else
+            CMAKE_FLAGS="$CMAKE_FLAGS -DCMAKE_BUILD_TYPE=Release"
+          fi
 
-      - name: Build tests
-        run: make -j$(nproc) tests
+          # Feature flags
+          echo "${{ matrix.flags }}" | grep -q -- "--enable-prof" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_PROF=ON"
+          echo "${{ matrix.flags }}" | grep -q -- "--disable-stats" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_STATS=OFF"
+          echo "${{ matrix.flags }}" | grep -q -- "--disable-libdl" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_LIBDL=OFF"
+          echo "${{ matrix.flags }}" | grep -q -- "--enable-opt-safety-checks" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_OPT_SAFETY_CHECKS=ON"
 
-      - name: Run tests
-        run: make check
+          # Page size
+          if echo "${{ matrix.flags }}" | grep -q -- "--with-lg-page=16"; then
+            CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_LG_PAGE=16"
+          fi
+
+          # Malloc conf (extract value after =)
+          if echo "${{ matrix.flags }}" | grep -q -- "--with-malloc-conf="; then
+            MALLOC_CONF=$(echo "${{ matrix.flags }}" | grep -o -- '--with-malloc-conf=[^ ]*' | cut -d= -f2-)
+            CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_CONFIG_MALLOC_CONF=$MALLOC_CONF"
+          fi
+
+          echo "==> Configure with CMake (CC=$CC, FLAGS=${{ matrix.flags }})"
+          cmake -B build -G Ninja $CMAKE_FLAGS
+
+          echo "==> Build"
+          cmake --build build
+
+          echo "==> Install"
+          cmake --install build --prefix $PWD/install
+
+          echo "==> Test"
+          cd build
+          ctest --output-on-failure
 
   # Level 1: CMake Integration Testing (runs immediately, part of smoke tests)
   test-cmake-builds:

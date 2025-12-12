@@ -1,4 +1,4 @@
-= jemalloc - Tebako Fork
+= Tebako Fork of jemalloc
 
 image:https://img.shields.io/github/v/tag/tamatebako/jemalloc.svg[GitHub tag]
 image:https://img.shields.io/github/license/tamatebako/jemalloc.svg[License]
@@ -7,9 +7,12 @@ image:https://github.com/tamatebako/jemalloc/actions/workflows/checks.yml/badge.
 
 == Purpose
 
-This is the *Tebako fork* of jemalloc, a general-purpose `malloc(3)`
-implementation that emphasizes fragmentation avoidance and scalable concurrency
-support.
+This is the *Tebako fork* of https://github.com/jemalloc/jemalloc[jemalloc], a
+general-purpose `malloc(3)` implementation that emphasizes fragmentation
+avoidance and scalable concurrency support.
+
+Tebako uses jemalloc as its default memory allocator due to its strong
+performance characteristics and rich feature set.
 
 jemalloc first came into use as the FreeBSD libc allocator in 2005, and since
 then it has found its way into numerous applications that rely on its
@@ -19,59 +22,10 @@ monitoring/tuning hooks. Modern jemalloc releases continue to be integrated back
 into FreeBSD, and therefore versatility remains critical.
 
 This fork is based on the Facebook fork of the original jemalloc project. The
-original jemalloc project by Jason Evans has been discontinued by its original
-author and is no longer actively maintained.
-
-== Why this fork exists
-
-Tebako uses jemalloc as its default memory allocator due to its strong
-performance characteristics and rich feature set.
-
-The Tebako fork continues jemalloc development with enhancements on top of the
-original project, described below.
-
-=== CMake build system support
-
-This fork adds comprehensive CMake integration for modern C/C++ projects:
-
-* *First-class CMake support* - Automatic installation of CMake configuration
-  files ([`JemallocConfig.cmake`](cmake/JemallocConfig.cmake.in:1),
-  [`JemallocConfigVersion.cmake`](cmake/JemallocConfigVersion.cmake.in:1))
-* *Find module included* - [`FindJemalloc.cmake`](cmake/FindJemalloc.cmake:1)
-  for projects that need standalone detection
-* *Modern CMake targets* - `Jemalloc::jemalloc` imported target with proper
-  include directories and library linkage
-* *Version detection* - Full support for `find_package(Jemalloc 5.3 REQUIRED)`
-  version requirements
-* *Seamless integration* - Works with both system-installed and
-  ExternalProject-based builds
-
-This makes jemalloc much easier to integrate into CMake-based projects without
-manual configuration.
-
-=== Comprehensive cross-platform CI/CD support
-
-The original jemalloc project relied on a fragmented CI approach using Travis
-CI, AppVeyor, and Cirrus CI. This fork modernizes the testing infrastructure
-with:
-
-* *Unified GitHub Actions workflows* - All CI/CD consolidated into a single, maintainable system
-* *Extensive platform coverage* - Comprehensive testing across:
-** Linux: Ubuntu 22.04/24.04 on x64, ARM64, and 32-bit (cross-compilation)
-** Windows: Server 2022/2025 and Windows 11 on x64, x86, and ARM64
-** macOS: versions 13-15 on Intel x64 and Apple Silicon ARM64
-** FreeBSD: versions 14.x and 15.x
-* *Two-level testing approach*:
-** Level 1: Fast smoke tests (~9 jobs, ~2 minutes)
-** Level 2: Comprehensive testing (~150+ jobs covering all configure flag combinations, ~30-45 minutes)
-* *Quality checks* - Automated trailing whitespace detection, code formatting, and static analysis with CodeChecker
-
-=== Windows ARM64 support
-
-The original jemalloc never supported ARM64 on Windows. This fork supports
-Windows ARM64, and is currently under active development.
-
-=== Ongoing development
+original https://github.com/jemalloc/jemalloc[jemalloc] project by
+https://jasone.github.io[Jason Evans] has been
+https://jasone.github.io/2025/06/12/jemalloc-postmortem/[discontinued] by its
+original author and is no longer actively maintained.
 
 While the original project is frozen, this fork continues to:
 
@@ -85,6 +39,15 @@ While the original project is frozen, this fork continues to:
 
 === Quick start
 
+**CMake (Recommended):**
+[source,bash]
+----
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+cmake --install build
+----
+
+**Autotools (Traditional):**
 [source,shell]
 ----
 ./configure
@@ -95,29 +58,45 @@ make install
 For detailed build instructions, configuration options, platform-specific
 builds, and advanced usage, see link:INSTALL.adoc[INSTALL.adoc].
 
-=== CMake integration
+=== CMake build
 
-After installing jemalloc with `make install`, CMake projects can immediately
-use `find_package()`:
+Build and install using CMake:
+
+[source,bash]
+----
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+cmake --install build --prefix /usr/local
+----
+
+After installation, use in your CMake projects:
 
 [source,cmake]
 ----
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.24)
 project(myapp)
 
-find_package(Jemalloc REQUIRED)
+find_package(jemalloc CONFIG REQUIRED)
 
 add_executable(myapp main.c)
-target_link_libraries(myapp PRIVATE Jemalloc::jemalloc)
+target_link_libraries(myapp PRIVATE jemalloc::jemalloc)
 ----
 
-For alternative integration methods, version requirements, and building from
-source with ExternalProject, see link:INSTALL.adoc[INSTALL.adoc].
+For complete CMake integration guide including `add_subdirectory()` and
+`FetchContent` methods, configuration options, platform-specific notes, and
+troubleshooting, see link:doc/CMAKE_INTEGRATION.adoc[CMAKE_INTEGRATION.adoc].
 
-=== Building with musl libc
+=== Support for musl libc
 
-jemalloc fully supports musl libc, a lightweight and fast alternative to glibc.
+==== General
+
+The Tebako fork of jemalloc fully supports musl libc, a lightweight and fast
+alternative to glibc.
+
 Two build approaches are supported:
+
+* Native musl builds using Alpine Linux
+* Cross-compilation using musl-tools on Ubuntu/Debian
 
 ==== Native musl (Alpine Linux)
 
@@ -126,40 +105,31 @@ The recommended way to build and test with musl is using Alpine Linux:
 [source,bash]
 ----
 # Install build dependencies
-apk add autoconf make gcc g++ musl-dev linux-headers
+apk add cmake make gcc musl-dev linux-headers ninja
 
-# Build and test (C++ disabled to avoid hanging OOM tests)
-./autogen.sh
-./configure --disable-cxx
-make
-make check
+# Build and test with CMake
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+cmake --install build --prefix /usr/local
 
-# Install
-make install
+# Run tests
+cd build
+ctest --output-on-failure
 ----
 
-**C++ support note**: C++ integration is disabled on Alpine/musl CI testing
-(`--disable-cxx`) because C++ memory exhaustion tests hang in containerized
-environments due to differences in OOM behavior between musl and glibc. For
-production deployments requiring C++ support, you can enable it with
-`--enable-cxx` but be aware that memory exhaustion scenarios may behave
-differently.
-
-**ARM64 musl note**: jemalloc automatically disables GCC outline atomics on ARM64
-+ musl to prevent linker errors with `__getauxval` (which musl doesn't export).
-This fix resolves https://github.com/jemalloc/jemalloc/issues/2782[GitHub issue
-#2782].
+**Why CMake on Alpine**: The native CMake build system works perfectly on
+Alpine Linux without requiring autotools.
 
 ==== Cross-compilation with musl-tools (Ubuntu/Debian)
 
 [source,bash]
 ----
 # Install musl tools
-sudo apt-get install musl-tools musl-dev
+sudo apt-get install musl-tools
 
-# May work for simple cases but not recommended
-./configure CC=musl-gcc CXX=g++
-make
+# Build with CMake
+CC=musl-gcc CXX=musl-g++ cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
 ----
 
 ==== musl platform differences
@@ -221,43 +191,232 @@ mallctl("stats.allocated", &allocated, &sz, NULL, 0);
 
 == Platform support
 
-[cols="1,2,2,1",options="header"]
+[cols="1,2,2,1,1,1",options="header"]
 |===
 |Platform
 |Architectures
 |Compilers
 |CI Coverage
+|CMake
+|vcpkg
 
 |Linux (glibc)
 |x64, ARM64, x86 (cross-compile)
 |gcc, clang
 |✅ Full
+|✅ Yes
+|✅ Yes
 
 |Linux (musl)
 |x64, ARM64
 |gcc, clang
 |✅ Full
+|✅ Yes
+|✅ Yes
 
 |Windows
-|x64, x86, ARM64*
+|x64, x86, ARM64
 |MSVC, MinGW
-|✅ Full (ARM64 in progress)
+|✅ Full
+|✅ Yes
+|✅ Yes
 
 |macOS
 |x64 (Intel), ARM64 (Apple Silicon)
 |clang
 |✅ Full
+|✅ Yes
+|✅ Yes
 
 |FreeBSD
 |x64
 |gcc
 |✅ Full
+|✅ Yes
+|✅ Yes
 |===
 
 *ARM64 on Windows is under active development
 
+**Note:** CMake 3.24+ required. vcpkg support requires Tebako fork overlay
+(see link:doc/CMAKE_INTEGRATION.adoc#vcpkg-integration[CMAKE_INTEGRATION.adoc § vcpkg Integration]).
+
+
+
+== Features of this fork
+
+=== General
+
+The Tebako fork continues jemalloc development with enhancements on top of the
+original project with these differences:
+
+* Simplified building using CMake as the primary build system
+* vcpkg port support for easy installation and dependency management
+* Full ARM architecture support across all major platforms
+* Comprehensive cross-platform CI/CD testing using GitHub Actions
+* Ongoing development to fix bugs, security issues, and maintain compatibility
+
+=== Simplified building
+
+==== General
+
+The Tebako fork simplifies jemalloc building by making CMake the primary build
+system. While the traditional autotools build system is still available for
+compatibility, CMake is now the recommended approach for all platforms.
+
+==== CMake (Recommended - Native on all platforms)
+
+Native CMake build system - works on all platforms without Unix tools.
+
+Quick start:
+
+[source,bash]
+----
+# All platforms (Windows, Linux, macOS, FreeBSD)
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+cmake --install build --prefix /path/to/install
+----
+
+Windows with MSVC (no MSYS2/bash/autoconf needed):
+
+[source,powershell]
+----
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+cmake --install build --prefix C:\path\to\install
+----
+
+Common Options:
+
+`-DJEMALLOC_BUILD_SHARED=ON/OFF`:: Build shared library (default: ON)
+`-DJEMALLOC_BUILD_STATIC=ON/OFF`:: Build static library (default: ON)
+`-DJEMALLOC_ENABLE_PROF=ON/OFF`:: Enable heap profiling (default: OFF)
+`-DJEMALLOC_ENABLE_STATS=ON/OFF`:: Enable statistics (default: ON)
+
+For complete CMake integration guide including `find_package()`, `add_subdirectory()`,
+`FetchContent`, and advanced configuration, see link:doc/CMAKE_INTEGRATION.adoc[CMAKE_INTEGRATION.adoc].
+
+==== Autotools (conventional Unix build - deprecated)
+
+Still available for compatibility, but CMake is now the recommended build
+system:
+
+[source,shell]
+----
+./autogen.sh
+./configure
+make
+make install
+----
+
+See link:INSTALL.adoc[INSTALL.adoc] for detailed autotools instructions.
+
+
+=== vcpkg integration
+
+This fork provides official vcpkg port support for easy installation and
+dependency management:
+
+* *Overlay port included* - Ready-to-use vcpkg port in `ports/jemalloc/`
+* *Manifest mode support* - Works with vcpkg.json dependency declarations
+* *Classic mode support* - Global installation available
+* *Cross-platform* - Supports all vcpkg target platforms
+* *Automatic CMake integration* - Installs proper CMake config files
+
+Quick vcpkg installation:
+
+[source,shell]
+----
+# Install with overlay
+vcpkg install jemalloc --overlay-ports=path/to/jemalloc/ports
+
+# Or use manifest mode (vcpkg.json)
+{
+  "dependencies": ["jemalloc"],
+  "vcpkg-configuration": {
+    "overlay-ports": ["path/to/jemalloc/ports"]
+  }
+}
+----
+
+For detailed vcpkg integration guide including manifest mode, version pinning,
+and troubleshooting, see link:doc/CMAKE_INTEGRATION.adoc#vcpkg-integration[CMAKE_INTEGRATION.adoc § vcpkg Integration].
+
+=== ARM architecture support
+
+This fork provides comprehensive ARM64 support across all major platforms.
+
+==== Windows ARM64 - First jemalloc variant with full support
+
+**First jemalloc variant with COMPLETE Windows ARM64 support**.
+
+* **Full CI/CD coverage** on `windows-11-arm` GitHub Actions runners
+* **All build configurations** working (Debug, Release, static, shared, MSVC)
+* **Native CMake build** - no Unix tools required
+* **Native ARM64 intrinsics** (`__yield()` for CPU spinwait via `YieldProcessor()`)
+* **vcpkg integration** tested and validated
+* **All Visual Studio versions** supported (2015-2022)
+
+Build on Windows ARM64:
+
+[source,powershell]
+----
+# Simple! Just use CMake with MSVC
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+----
+
+==== Linux musl ARM64 - Automatic GH #2782 fix
+
+Automatic fix for ARM64 outline atomics linking error:
+
+* Detects `musl + ARM64` configuration automatically
+* Adds `-mno-outline-atomics` flag to prevent `__getauxval` errors
+* Resolves https://github.com/jemalloc/jemalloc/issues/2782[GitHub issue #2782]
+* Tested on Alpine Linux and Ubuntu cross-compilation
+
+==== macOS Apple Silicon - Native support
+
+Full native support for Apple Silicon:
+
+* M1/M2/M3 processor optimization
+* Universal binary support (x86_64 + ARM64)
+* Tested on macOS 13-15
+* Zone allocator integration
+
+For platform-specific build instructions and ARM64 details, see
+link:doc/CMAKE_INTEGRATION.adoc#platform-specific-notes[CMAKE_INTEGRATION.adoc § Platform-Specific Notes].
+
+
+== Cross-platform CI/CD
+
+The Tebako fork of jemalloc uses a comprehensive GitHub Actions CI/CD system
+that achieves:
+
+* *Native CMake build system* - All ~205 CI jobs use CMake (no autotools)
+
+* *Extensive platform coverage* - Comprehensive testing across:
+** Linux (glibc): Ubuntu 22.04/24.04 on x64, ARM64, and 32-bit (cross-compilation)
+** Linux (musl): Alpine Linux 3.20 on x64 and ARM64
+** Windows: Server 2022/2025 and Windows 11 on x64, x86, and ARM64
+** macOS: versions 13-15 on Intel x64 and Apple Silicon ARM64
+** FreeBSD: versions 14.x and 15.x
+
+* *Two-level testing approach*:
+** Level 1: Fast smoke tests (~15 jobs including musl, ~2-3 minutes)
+** Level 2: Comprehensive testing (~190+ jobs covering all configure flag combinations, ~30-45 minutes)
+
+* *Quality checks* - Automated trailing whitespace detection and static analysis
+with CodeChecker
+
+NOTE: The original jemalloc project relied on a fragmented CI approach using
+Travis CI, AppVeyor, and Cirrus CI.
+
+
 == Documentation
 
+* link:doc/CMAKE_INTEGRATION.adoc[CMAKE_INTEGRATION.adoc] - Comprehensive CMake and vcpkg integration guide
 * link:INSTALL.adoc[INSTALL.adoc] - Detailed build and installation instructions
 * link:doc_internal/PROFILING_INTERNALS.md[Profiling Internals] - Heap profiling implementation details
 * link:ChangeLog[ChangeLog] - Release history and changes
@@ -266,13 +425,11 @@ mallctl("stats.allocated", &allocated, &sz, NULL, 0);
 
 Contributions are welcome! Please:
 
-1. Fork the repository
-2. Create a feature branch from `dev`
-3. Make your changes with clear, semantic commit messages
-4. Run the full test suite: `make check`
-5. Submit a pull request to the `dev` branch
-
-All pull requests are automatically tested across ~160+ CI jobs covering all supported platforms and configurations.
+. Fork the repository
+. Create a feature branch from `main`
+. Make your changes with clear, semantic commit messages
+. Run the full test suite: `make check`
+. Submit a pull request to the `main` branch
 
 == Links
 
@@ -283,7 +440,8 @@ All pull requests are automatically tested across ~160+ CI jobs covering all sup
 
 == License
 
-jemalloc is licensed under the BSD-2-Clause license. See the link:COPYING[COPYING] file for details.
+jemalloc is licensed under the BSD-2-Clause license. See the
+link:COPYING[COPYING] file for details.
 
 == Acknowledgments
 

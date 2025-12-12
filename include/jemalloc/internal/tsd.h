@@ -9,10 +9,10 @@
 #ifdef JEMALLOC_MALLOC_THREAD_CLEANUP
 #	include "jemalloc/internal/jemalloc_preamble.h"
 #	include "jemalloc/internal/tsd_malloc_thread_cleanup.h"
-#elif (defined(JEMALLOC_TLS))
-#	include "jemalloc/internal/tsd_tls.h"
 #elif (defined(_WIN32))
 #	include "jemalloc/internal/tsd_win.h"
+#elif (defined(JEMALLOC_TLS))
+#	include "jemalloc/internal/tsd_tls.h"
 #else
 #	include "jemalloc/internal/tsd_generic.h"
 #endif

@@ -109,7 +109,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y autoconf
+          sudo apt-get install -y cmake ninja-build
 
       # Windows MSVC.setup (autoconf+make with cl.exe via PATH inheritance)
       - name: Setup MSVC
@@ -126,7 +126,8 @@ jobs:
           update: false
           path-type: inherit
           install: >-
-            autoconf
+            cmake
+            ninja
             make
 
       # Windows MinGW setup (autoconf/configure)
@@ -137,7 +138,8 @@ jobs:
           msystem: ${{ matrix.mingw }}
           update: true
           install: >-
-            autoconf
+            cmake
+            ninja
             make
             ${{ matrix.mingw == 'MINGW64' && 'mingw-w64-x86_64-gcc mingw-w64-x86_64-binutils' || 'mingw-w64-i686-gcc mingw-w64-i686-binutils' }}
 
@@ -145,9 +147,9 @@ jobs:
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
         run: |
-          # Install autoconf if not present
-          if ! which autoconf > /dev/null 2>&1; then
-            brew install autoconf
+          # Install cmake if not present
+          if ! which cmake > /dev/null 2>&1; then
+            brew install cmake ninja
           fi
 
       # Configure - Linux/macOS
@@ -156,103 +158,65 @@ jobs:
         env:
           CC: ${{ matrix.cc }}
           CXX: ${{ matrix.cxx }}
-          EXTRA_CFLAGS: ${{ runner.os == 'Linux' && (contains(matrix.cc, 'clang') && '-Werror -Wno-array-bounds -Wno-unknown-warning-option -Wno-ignored-attributes' || '-Werror -Wno-array-bounds') || '-Werror -Wno-array-bounds -Wno-unknown-warning-option -Wno-ignored-attributes -Wno-deprecated-declarations' }}
         run: |
-          echo "==> Autoconf"
-          autoconf
-          echo "==> Configure with CC=$CC"
-          ./configure
+          echo "==> Configure with CMake (CC=$CC)"
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
       - name: Build (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
           echo "==> Build"
-          make -j$(nproc || sysctl -n hw.ncpu)
+          cmake --build build
+          echo "==> Install"
+          cmake --install build --prefix $PWD/install
 
-      - name: Build tests (Linux/macOS)
-        if: runner.os != 'Windows'
-        run: |
-          echo "==> Build tests"
-          make -j$(nproc || sysctl -n hw.ncpu) tests
-
-      - name: Run tests (Linux/macOS)
+      - name: Test (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
           echo "==> Run tests"
-          make check
+          cd build
+          ctest --output-on-failure
 
-      # Windows MinGW configure and build
-      - name: Configure (Windows MinGW)
+      # Windows MinGW build
+      - name: Build (Windows MinGW)
         if: runner.os == 'Windows' && matrix.mingw != ''
         shell: msys2 {0}
         env:
           CC: gcc
           CXX: g++
-          EXTRA_CFLAGS: '-fcommon'
         run: |
-          echo "==> Autoconf"
-          autoconf
-          echo "==> Configure with CC=$CC"
-          ./configure
-
-      - name: Build (Windows MinGW)
-        if: runner.os == 'Windows' && matrix.mingw != ''
-        shell: msys2 {0}
-        run: |
+          echo "==> Configure with CMake"
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           echo "==> Build"
-          make -j3
+          cmake --build build
+          echo "==> Install"
+          cmake --install build --prefix $PWD/install
 
-      - name: Build tests (Windows MinGW)
-        if: runner.os == 'Windows' && matrix.mingw != ''
-        shell: msys2 {0}
-        run: |
-          echo "==> Build tests"
-          make -j3 tests
-
-      - name: Run tests (Windows MinGW)
+      - name: Test (Windows MinGW)
         if: runner.os == 'Windows' && matrix.mingw != ''
         shell: msys2 {0}
         run: |
           echo "==> Run tests"
-          make -k check
+          cd build
+          ctest --output-on-failure
 
-      # Windows MSVC: Use autoconf+make with cl.exe (like Travis CI)
-      - name: Configure (Windows MSVC)
-        if: runner.os == 'Windows' && matrix.msvc
-        shell: msys2 {0}
-        env:
-          CC: cl
-          CXX: cl
-        run: |
-          echo "==> Autoconf"
-          autoconf
-          echo "==> Configure with CC=$CC CXX=$CXX"
-          ./configure
-
+      # Windows MSVC: Use CMake native
       - name: Build (Windows MSVC)
         if: runner.os == 'Windows' && matrix.msvc
-        shell: msys2 {0}
         run: |
+          echo "==> Configure with CMake"
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
           echo "==> Build"
-          make -j3
+          cmake --build build --config Release
+          echo "==> Install"
+          cmake --install build --config Release --prefix ${{ github.workspace }}/install
 
-      - name: Build tests (Windows MSVC)
+      - name: Test (Windows MSVC)
         if: runner.os == 'Windows' && matrix.msvc
-        shell: msys2 {0}
         run: |
-          echo "==> Adding lib/ to PATH for DLL access during test build"
-          export PATH="$(pwd)/lib:$PATH"
-          echo "==> Build tests"
-          make -j3 tests
-
-      - name: Run tests (Windows MSVC)
-        if: runner.os == 'Windows' && matrix.msvc
-        shell: msys2 {0}
-        run: |
-          echo "==> Adding lib/ to PATH for DLL loading"
-          export PATH="$(pwd)/lib:$PATH"
           echo "==> Run tests"
-          make -k check
+          cd build
+          ctest -C Release --output-on-failure
 
   # FreeBSD
   freebsd:
@@ -272,22 +236,22 @@ jobs:
         with:
           release: ${{ matrix.version }}
           usesh: true
-          prepare: pkg install -y autoconf gmake gcc
+          prepare: pkg install -y cmake gmake gcc ninja
           run: |
             set -e
-            echo "==> Configure"
-            autoconf
-            ./configure --with-jemalloc-prefix=ci_
+            echo "==> Configure with CMake"
+            cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
             echo "==> Build"
             JFLAG=$(sysctl -n kern.smp.cpus)
-            gmake -j${JFLAG}
+            cmake --build build -j${JFLAG}
 
-            echo "==> Build tests"
-            gmake -j${JFLAG} tests
+            echo "==> Install"
+            cmake --install build --prefix $PWD/install
 
             echo "==> Run tests"
-            gmake check
+            cd build
+            ctest --output-on-failure
 
   # Level 1: Alpine Linux (native musl libc)
   alpine-musl:
@@ -324,39 +288,58 @@ jobs:
       - name: Install dependencies
         run: |
           apk update
-          apk add autoconf make gcc g++ clang musl-dev linux-headers
+          apk add cmake make gcc g++ clang musl-dev linux-headers ninja
 
-      - name: Configure
+      - name: Build and test with CMake
         env:
           CC: ${{ matrix.cc }}
           CXX: ${{ matrix.cxx }}
-          EXTRA_CFLAGS: ${{ contains(matrix.cc, 'clang') && '-Werror -Wno-array-bounds -Wno-non-literal-null-conversion' || '-Werror -Wno-array-bounds' }}
         run: |
-          echo "==> Autoconf"
-          autoconf
-          echo "==> Configure with CC=$CC"
-          ./configure --disable-cxx
+          # Translate configure flags to CMake options
+          CMAKE_FLAGS=""
 
-      - name: Build
-        run: |
+          # Build type
+          if echo "${{ matrix.flags }}" | grep -q -- "--enable-debug"; then
+            CMAKE_FLAGS="$CMAKE_FLAGS -DCMAKE_BUILD_TYPE=Debug"
+          else
+            CMAKE_FLAGS="$CMAKE_FLAGS -DCMAKE_BUILD_TYPE=Release"
+          fi
+
+          # Feature flags
+          echo "${{ matrix.flags }}" | grep -q -- "--enable-prof" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_PROF=ON"
+          echo "${{ matrix.flags }}" | grep -q -- "--disable-stats" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_STATS=OFF"
+          echo "${{ matrix.flags }}" | grep -q -- "--disable-libdl" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_LIBDL=OFF"
+          echo "${{ matrix.flags }}" | grep -q -- "--enable-opt-safety-checks" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_OPT_SAFETY_CHECKS=ON"
+
+          # Page size
+          if echo "${{ matrix.flags }}" | grep -q -- "--with-lg-page=16"; then
+            CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_LG_PAGE=16"
+          fi
+
+          # Malloc conf (extract value after =)
+          if echo "${{ matrix.flags }}" | grep -q -- "--with-malloc-conf="; then
+            MALLOC_CONF=$(echo "${{ matrix.flags }}" | grep -o -- '--with-malloc-conf=[^ ]*' | cut -d= -f2-)
+            CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_CONFIG_MALLOC_CONF=$MALLOC_CONF"
+          fi
+
+          echo "==> Configure with CMake (CC=$CC, FLAGS=${{ matrix.flags }})"
+          cmake -B build -G Ninja $CMAKE_FLAGS
+
           echo "==> Build"
-          make -j$(nproc)
+          cmake --build build
 
-      - name: Build tests
-        run: |
-          echo "==> Build tests"
-          make -j$(nproc) tests
+          echo "==> Install"
+          cmake --install build --prefix $PWD/install
 
-      - name: Run tests
-        run: |
-          echo "==> Run tests"
-          make check
+          echo "==> Test"
+          cd build
+          ctest --output-on-failure
 
   # Level 2: Comprehensive configure flag testing (runs after Linux succeeds)
   linux-configure-flags:
     name: Linux flags - ${{ matrix.compiler }} ${{ matrix.flags }}
     runs-on: ubuntu-24.04
-    needs: basic-platforms
+    needs: [basic-platforms, test-cmake-builds, test-vcpkg-integration]
     strategy:
       fail-fast: false
       matrix:
@@ -538,31 +521,58 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y autoconf
+          sudo apt-get install -y cmake ninja-build
 
-      - name: Configure
+      - name: Build and test
         env:
           CC: ${{ matrix.compiler == 'clang' && 'clang' || 'gcc' }}
           CXX: ${{ matrix.compiler == 'clang' && 'clang++' || 'g++' }}
-          EXTRA_CFLAGS: ${{ matrix.compiler == 'clang' && '-Werror -Wno-array-bounds -Wno-unknown-warning-option -Wno-ignored-attributes' || '-Werror -Wno-array-bounds' }}
         run: |
-          autoconf
-          ./configure ${{ matrix.flags }}
+          # Translate configure flags to CMake options
+          CMAKE_FLAGS=""
 
-      - name: Build
-        run: make -j$(nproc)
+          # Build type
+          if echo "${{ matrix.flags }}" | grep -q -- "--enable-debug"; then
+            CMAKE_FLAGS="$CMAKE_FLAGS -DCMAKE_BUILD_TYPE=Debug"
+          else
+            CMAKE_FLAGS="$CMAKE_FLAGS -DCMAKE_BUILD_TYPE=Release"
+          fi
 
-      - name: Build tests
-        run: make -j$(nproc) tests
+          # Feature flags
+          echo "${{ matrix.flags }}" | grep -q -- "--enable-prof" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_PROF=ON"
+          echo "${{ matrix.flags }}" | grep -q -- "--disable-stats" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_STATS=OFF"
+          echo "${{ matrix.flags }}" | grep -q -- "--disable-libdl" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_LIBDL=OFF"
+          echo "${{ matrix.flags }}" | grep -q -- "--enable-opt-safety-checks" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_OPT_SAFETY_CHECKS=ON"
 
-      - name: Run tests
-        run: make check
+          # Page size
+          if echo "${{ matrix.flags }}" | grep -q -- "--with-lg-page=16"; then
+            CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_LG_PAGE=16"
+          fi
+
+          # Malloc conf (extract value after =)
+          if echo "${{ matrix.flags }}" | grep -q -- "--with-malloc-conf="; then
+            MALLOC_CONF=$(echo "${{ matrix.flags }}" | grep -o -- '--with-malloc-conf=[^ ]*' | cut -d= -f2-)
+            CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_CONFIG_MALLOC_CONF=$MALLOC_CONF"
+          fi
+
+          echo "==> Configure with CMake (CC=$CC, FLAGS=${{ matrix.flags }})"
+          cmake -B build -G Ninja $CMAKE_FLAGS
+
+          echo "==> Build"
+          cmake --build build
+
+          echo "==> Install"
+          cmake --install build --prefix $PWD/install
+
+          echo "==> Test"
+          cd build
+          ctest --output-on-failure
 
   # Level 2: 32-bit builds (after Linux succeeds)
   linux-32bit:
     name: Linux 32-bit - gcc ${{ matrix.name }}
     runs-on: ubuntu-24.04
-    needs: basic-platforms
+    needs: [basic-platforms, test-cmake-builds, test-vcpkg-integration]
     strategy:
       fail-fast: false
       matrix:
@@ -599,29 +609,56 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y autoconf gcc-multilib g++-multilib
+          sudo apt-get install -y cmake ninja-build gcc-multilib g++-multilib
 
-      - name: Configure
-        env:
-          EXTRA_CFLAGS: '-Werror -Wno-array-bounds'
+      - name: Build and test
         run: |
-          autoconf
-          ./configure CC="gcc -m32" CXX="g++ -m32" ${{ matrix.flags }}
+          # Translate configure flags to CMake options
+          CMAKE_FLAGS="-DCMAKE_C_FLAGS=-m32 -DCMAKE_CXX_FLAGS=-m32"
 
-      - name: Build
-        run: make -j$(nproc)
+          # Build type
+          if echo "${{ matrix.flags }}" | grep -q -- "--enable-debug"; then
+            CMAKE_FLAGS="$CMAKE_FLAGS -DCMAKE_BUILD_TYPE=Debug"
+          else
+            CMAKE_FLAGS="$CMAKE_FLAGS -DCMAKE_BUILD_TYPE=Release"
+          fi
 
-      - name: Build tests
-        run: make -j$(nproc) tests
+          # Feature flags
+          echo "${{ matrix.flags }}" | grep -q -- "--enable-prof" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_PROF=ON"
+          echo "${{ matrix.flags }}" | grep -q -- "--disable-stats" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_STATS=OFF"
+          echo "${{ matrix.flags }}" | grep -q -- "--disable-libdl" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_LIBDL=OFF"
+          echo "${{ matrix.flags }}" | grep -q -- "--enable-opt-safety-checks" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_OPT_SAFETY_CHECKS=ON"
 
-      - name: Run tests
-        run: make check
+          # Page size
+          if echo "${{ matrix.flags }}" | grep -q -- "--with-lg-page=16"; then
+            CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_LG_PAGE=16"
+          fi
+
+          # Malloc conf
+          if echo "${{ matrix.flags }}" | grep -q -- "--with-malloc-conf="; then
+            MALLOC_CONF=$(echo "${{ matrix.flags }}" | grep -o -- '--with-malloc-conf=[^ ]*' | cut -d= -f2-)
+            CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_CONFIG_MALLOC_CONF=$MALLOC_CONF"
+          fi
+
+          echo "==> Configure with CMake (32-bit)"
+          echo "FLAGS: $CMAKE_FLAGS"
+          cmake -B build -G Ninja $CMAKE_FLAGS
+
+          echo "==> Build"
+          cmake --build build
+
+          echo "==> Install"
+          cmake --install build --prefix $PWD/install
+
+          echo "==> Test"
+          cd build
+          ctest --output-on-failure
 
   # Special builds
   special-builds:
     name: ${{ matrix.name }}
     runs-on: ubuntu-24.04
-    needs: basic-platforms
+    needs: [basic-platforms, test-cmake-builds, test-vcpkg-integration]
     strategy:
       fail-fast: false
       matrix:
@@ -638,32 +675,59 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y autoconf
+          sudo apt-get install -y cmake ninja-build
 
-      - name: Configure
+      - name: Build and test
         env:
           CC: gcc
           CXX: g++
-          EXTRA_CFLAGS: '-Werror -Wno-array-bounds'
         run: |
-          autoconf
-          ./configure ${{ matrix.flags }}
+          # Translate configure flags to CMake options
+          CMAKE_FLAGS=""
 
-      - name: Build
-        run: make -j$(nproc)
+          # Build type (special builds are typically debug)
+          CMAKE_FLAGS="$CMAKE_FLAGS -DCMAKE_BUILD_TYPE=Debug"
 
-      - name: Build tests
-        run: make -j$(nproc) tests
+          # Development build flags
+          if echo "${{ matrix.flags }}" | grep -q -- "--enable-debug"; then
+            CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_DEBUG=ON"
+          fi
+          if echo "${{ matrix.flags }}" | grep -q -- "--enable-prof"; then
+            CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_PROF=ON"
+          fi
+          if echo "${{ matrix.flags }}" | grep -q -- "--enable-stats"; then
+            CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_STATS=ON"
+          fi
+          if echo "${{ matrix.flags }}" | grep -q -- "--enable-log"; then
+            CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_LOG=ON"
+          fi
+          if echo "${{ matrix.flags }}" | grep -q -- "--disable-cache-oblivious"; then
+            CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_CACHE_OBLIVIOUS=OFF"
+          fi
+          if echo "${{ matrix.flags }}" | grep -q -- "--enable-experimental-smallocx"; then
+            CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_EXPERIMENTAL_SMALLOCX=ON"
+          fi
 
-      - name: Run tests
-        run: make check
+          echo "==> Configure with CMake"
+          echo "FLAGS: $CMAKE_FLAGS"
+          cmake -B build -G Ninja $CMAKE_FLAGS
+
+          echo "==> Build"
+          cmake --build build
+
+          echo "==> Install"
+          cmake --install build --prefix $PWD/install
+
+          echo "==> Test"
+          cd build
+          ctest --output-on-failure
 
   # Level 2: Alpine Linux (musl) configure flags
   alpine-configure-flags:
     name: Alpine flags - ${{ matrix.compiler }} ${{ matrix.flags }}
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     container: alpine:3.20
-    needs: alpine-musl
+    needs: [alpine-musl, test-cmake-builds, test-vcpkg-integration]
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -704,7 +768,7 @@ jobs:
       - name: Install dependencies
         run: |
           apk update
-          apk add autoconf make gcc g++ clang musl-dev linux-headers
+          apk add cmake make gcc g++ clang musl-dev linux-headers ninja
 
       - name: Configure
         env:
@@ -755,21 +819,6 @@ jobs:
             os: ubuntu-24.04-arm
             cmake_preset: find_package
             test_subdirectory: false
-            test_fetchcontent: false
-
-          # Windows x64
-          - name: Windows x64 find_package
-            os: windows-2022
-            cmake_preset: find_package
-            test_subdirectory: false
-            test_fetchcontent: false
-
-          # Windows ARM64
-          - name: Windows ARM64 find_package
-            os: windows-11-arm
-            cmake_preset: find_package
-            test_subdirectory: false
-            test_fetchcontent: false
 
           # macOS ARM64
           - name: macOS ARM64 find_package
@@ -783,40 +832,48 @@ jobs:
             test_subdirectory: true
             test_fetchcontent: false
 
+          # macOS Intel
+          - name: macOS Intel find_package
+            os: macos-15-intel
+            cmake_preset: find_package
+            test_subdirectory: false
+            test_fetchcontent: false
+
+          # Windows x64 (Native CMake - no MSYS2/autoconf needed!)
+          - name: Windows x64 find_package
+            os: windows-2022
+            cmake_preset: find_package
+            test_subdirectory: false
+            test_fetchcontent: false
+
+          # Windows ARM64 (Native CMake - no MSYS2/autoconf needed!)
+          - name: Windows ARM64 find_package
+            os: windows-11-arm
+            cmake_preset: find_package
+            test_subdirectory: false
+            test_fetchcontent: false
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Linux dependencies
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y autoconf cmake
+      # Install CMake and Ninja using lukka/get-cmake (works on all platforms including ARM64)
+      - name: Get CMake and Ninja
+        uses: lukka/get-cmake@latest
 
-      # macOS dependencies
-      - name: Install macOS dependencies
-        if: runner.os == 'macOS'
-        run: |
-          if ! which autoconf > /dev/null 2>&1; then
-            brew install autoconf
-          fi
-          if ! which cmake > /dev/null 2>&1; then
-            brew install cmake
-          fi
-
-      # Windows dependencies
-      - name: Install Windows dependencies
+      # Windows: Setup MSVC compiler
+      - name: Setup MSVC
         if: runner.os == 'Windows'
-        run: |
-          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ contains(matrix.os, 'arm') && 'arm64' || 'x64' }}
 
-      # Build and install jemalloc with CMake (except for add_subdirectory/FetchContent tests)
+      # Build and install jemalloc with CMake (native - no autoconf needed!)
       - name: Build jemalloc with CMake
         if: matrix.cmake_preset == 'find_package'
         run: |
-          echo "==> Building jemalloc with CMake"
-          cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=${{ runner.os == 'Windows' && '${{ github.workspace }}/install' || '${{ github.workspace }}/install' }}
+          echo "==> Building jemalloc with native CMake"
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
           cmake --build build --config Release
           cmake --install build --config Release
 
@@ -861,8 +918,14 @@ jobs:
         include:
           - name: Ubuntu x64
             os: ubuntu-24.04
+          - name: Linux ARM64
+            os: ubuntu-24.04-arm
           - name: Windows x64
             os: windows-2022
+          - name: Windows ARM64
+            os: windows-11-arm
+          - name: macOS Intel
+            os: macos-15-intel
           - name: macOS ARM64
             os: macos-15
 
@@ -892,23 +955,32 @@ jobs:
       - name: Install Windows dependencies
         if: runner.os == 'Windows'
         run: |
-          choco install cmake git --installargs 'ADD_CMAKE_TO_PATH=System' -y
+          choco install git --installargs 'ADD_CMAKE_TO_PATH=System' -y
 
-      # Bootstrap vcpkg
-      - name: Bootstrap vcpkg
-        run: |
-          echo "==> Cloning vcpkg"
-          git clone https://github.com/Microsoft/vcpkg.git
-          cd vcpkg
-          echo "==> Bootstrapping vcpkg"
-          ${{ runner.os == 'Windows' && './bootstrap-vcpkg.bat' || './bootstrap-vcpkg.sh' }}
+      # Windows: Setup MSVC compiler (required for vcpkg builds)
+      - name: Setup MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ contains(matrix.os, 'arm') && 'arm64' || 'x64' }}
+
+      # Setup vcpkg using lukka/run-vcpkg action (recommended best practice)
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: 'e7b524242c8a5d718a7afa26794c3c19bb8b0c71'
+          doNotCache: false
 
       # Install jemalloc via vcpkg overlay
       - name: Install jemalloc via vcpkg overlay
+        shell: bash
         run: |
           echo "==> Installing jemalloc with overlay port"
-          cd vcpkg
-          ./vcpkg install jemalloc --overlay-ports=${{ github.workspace }}/ports
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            "$VCPKG_ROOT/vcpkg.exe" install jemalloc --classic --overlay-ports="${{ github.workspace }}/ports"
+          else
+            "$VCPKG_ROOT/vcpkg" install jemalloc --classic --overlay-ports="${{ github.workspace }}/ports"
+          fi
 
       # Create and test integration project (Windows)
       - name: Test vcpkg integration (Windows)
@@ -951,7 +1023,7 @@ jobs:
           "@ | Out-File -FilePath CMakeLists.txt -Encoding ASCII
 
           echo "==> Building test project"
-          cmake -B build -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
           cmake --build build --config Release
 
           echo "==> Running test"
@@ -997,7 +1069,7 @@ jobs:
           EOF
 
           echo "==> Building test project"
-          cmake -B build -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
           cmake --build build
 
           echo "==> Running test"

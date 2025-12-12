@@ -415,6 +415,9 @@
 /* sizeof(intmax_t) == 2^LG_SIZEOF_INTMAX_T. */
 #undef LG_SIZEOF_INTMAX_T
 
+/* sizeof(void *) == 2^LG_SIZEOF_PTR. */
+#undef LG_SIZEOF_PTR
+
 /* glibc malloc hooks (__malloc_hook, __realloc_hook, __free_hook). */
 #undef JEMALLOC_GLIBC_MALLOC_HOOK
 

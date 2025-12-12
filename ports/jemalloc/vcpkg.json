@@ -1,6 +1,6 @@
 {
   "name": "jemalloc",
-  "version-string": "5.3.0",
+  "version-string": "5.5.0",
   "description": "General purpose malloc implementation (Tebako fork with full ARM support)",
   "homepage": "https://github.com/tamatebako/jemalloc",
   "license": "BSD-2-Clause",

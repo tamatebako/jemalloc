@@ -108,4 +108,26 @@ test/include/test/jemalloc_test_defs.h
 /msvc/projects/*/*/x64/
 clang+llvm-*.tar.xz
 
-/.kilo
+# CMake build directories
+build/
+build-*/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+*.pc
+
+# Build artifacts
+*.dylib
+*.so
+*.so.*
+*.a
+*.o
+*.d
+
+# Temporary files
+*~
+*.bak
+*.bak2

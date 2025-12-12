@@ -213,82 +213,93 @@ cmake --build build
 
 == Configuration Options
 
-All CMake options can be set via `-D` flag or `set()` before `add_subdirectory()`.
+=== CMake Build Options
 
-=== Build Type Options
+The following CMake options are available:
 
-[cols="2,1,3",options="header"]
+[cols="3,2,2,4",options="header"]
 |===
-|Option |Default |Description
+|Option |Type |Default |Description
 
-|`JEMALLOC_BUILD_SHARED`
-|`ON`
-|Build shared library (`.so`, `.dylib`, `.dll`)
-
-|`JEMALLOC_BUILD_STATIC`
-|`ON`
-|Build static library (`.a`, `.lib`)
+|`JEMALLOC_BUILD_SHARED` |BOOL |ON |Build shared library
+|`JEMALLOC_BUILD_STATIC` |BOOL |ON |Build static library
+|`JEMALLOC_ENABLE_DOC` |BOOL |OFF |Enable documentation
+|`JEMALLOC_ENABLE_STATS` |BOOL |ON |Enable statistics
+|`JEMALLOC_ENABLE_PROF` |BOOL |OFF |Enable profiling
+|`JEMALLOC_EXTRA_CONFIGURE_ARGS` |STRING |"" |Additional configure arguments
 |===
 
-**Example:** Build static library only:
+Example usage:
+
+[source,cmake]
+----
+cmake -B build \
+    -DJEMALLOC_BUILD_SHARED=OFF \
+    -DJEMALLOC_ENABLE_PROF=ON \
+    -DJEMALLOC_EXTRA_CONFIGURE_ARGS="--with-jemalloc-prefix=je_"
+----
+
+=== Custom Configure Flags
+
+Pass additional flags to the autotools configure script using `JEMALLOC_EXTRA_CONFIGURE_ARGS`:
+
+**Via CMake command line:**
 
 [source,bash]
 ----
-cmake -DJEMALLOC_BUILD_SHARED=OFF -DJEMALLOC_BUILD_STATIC=ON ..
+cmake -B build \
+    -DJEMALLOC_EXTRA_CONFIGURE_ARGS="--with-jemalloc-prefix=je_ --with-lg-page=16"
+cmake --build build
+cmake --install build
 ----
 
-=== Feature Options
+**Via CMakeLists.txt (before add_subdirectory):**
 
-[cols="2,1,3",options="header"]
-|===
-|Option |Default |Description
-
-|`JEMALLOC_ENABLE_STATS`
-|`ON`
-|Enable statistics gathering (mallctl)
-
-|`JEMALLOC_ENABLE_PROF`
-|`OFF`
-|Enable heap profiling support
-
-|`JEMALLOC_ENABLE_DOC`
-|`OFF`
-|Build documentation (requires xsltproc)
-|===
-
-**Example:** Enable profiling for performance analysis:
-
-[source,bash]
+[source,cmake]
 ----
-cmake -DJEMALLOC_ENABLE_PROF=ON ..
+# In your project's CMakeLists.txt
+set(JEMALLOC_EXTRA_CONFIGURE_ARGS "--with-jemalloc-prefix=je_" CACHE STRING "" FORCE)
+add_subdirectory(jemalloc)
 ----
 
-=== CMake Standard Options
+**Via FetchContent:**
+
+[source,cmake]
+----
+include(FetchContent)
+
+# Set configure args before declaring the content
+set(JEMALLOC_EXTRA_CONFIGURE_ARGS "--with-malloc-conf=tcache:false" CACHE STRING "" FORCE)
+
+FetchContent_Declare(
+    jemalloc
+    GIT_REPOSITORY https://github.com/tamatebako/jemalloc.git
+    GIT_TAG main
+)
+
+FetchContent_MakeAvailable(jemalloc)
+----
+
+**Common autotools configure flags:**
 
 [cols="2,3",options="header"]
 |===
-|Option |Description
+|Flag |Description
 
-|`CMAKE_INSTALL_PREFIX`
-|Installation directory (default: `/usr/local`)
-
-|`CMAKE_BUILD_TYPE`
-|`Release`, `Debug`, `RelWithDebInfo`, `MinSizeRel`
-
-|`CMAKE_C_COMPILER`
-|C compiler (e.g., `gcc`, `clang`, `cl`)
-
-|`CMAKE_CXX_COMPILER`
-|C++ compiler (optional, for C++ support)
+|`--with-jemalloc-prefix=<prefix>` |Prefix all jemalloc symbols
+|`--with-malloc-conf=<opts>` |Embedded runtime configuration
+|`--with-lg-page=<n>` |Set page size to 2^n bytes
+|`--with-lg-hugepage=<n>` |Set huge page size to 2^n bytes
+|`--enable-debug` |Enable debug mode
+|`--enable-prof-libunwind` |Use libunwind for profiling
+|`--disable-cxx` |Disable C++ integration
 |===
 
-**Example:** Custom installation with debug symbols:
+For a complete list of configure options, run:
 
 [source,bash]
 ----
-cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-      -DCMAKE_INSTALL_PREFIX=$HOME/local \
-      ..
+./configure --help
 ----
 
 == Platform-Specific Notes
@@ -703,18 +714,6 @@ target_link_libraries(myapp_shared PRIVATE jemalloc_shared)
 # Use default (static if both enabled)
 target_link_libraries(myapp PRIVATE jemalloc::jemalloc)
 ----
-
-=== Custom Configure Flags via CMake
-
-Pass additional flags to the autotools configure script:
-
-[source,cmake]
-----
-# In your CMakeLists.txt before add_subdirectory()
-set(JEMALLOC_EXTRA_CONFIGURE_ARGS "--with-jemalloc-prefix=je_" CACHE STRING "")
-----
-
-Currently not exposed via CMake options, but can be extended in `CMakeLists.txt` if needed.
 
 === Profiling Support
 

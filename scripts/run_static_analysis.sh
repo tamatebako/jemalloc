@@ -110,23 +110,25 @@ extra_flags=(
 )
 
 # Configure and build with instrumentation
-log_info "Configuring jemalloc with debug and profiling enabled..."
-EXTRA_CFLAGS="${extra_flags[*]}" \
-EXTRA_CXXFLAGS="${extra_flags[*]}" \
-./autogen.sh \
-    --with-private-namespace=jemalloc_ \
-    --disable-cache-oblivious \
-    --enable-prof \
-    --enable-prof-libunwind \
-    --with-malloc-conf="$compile_time_malloc_conf" \
-    --enable-readlinkat \
-    --enable-opt-safety-checks \
-    --enable-uaf-detection \
-    --enable-force-getenv \
-    --enable-debug
+log_info "Configuring jemalloc with CMake (debug and profiling enabled)..."
+cmake -S . -B build \
+    -DCMAKE_BUILD_TYPE=Debug \
+    -DCMAKE_C_COMPILER="$CC" \
+    -DCMAKE_CXX_COMPILER="$CXX" \
+    -DCMAKE_C_FLAGS="${extra_flags[*]}" \
+    -DCMAKE_CXX_FLAGS="${extra_flags[*]}" \
+    -DJEMALLOC_PRIVATE_NAMESPACE=jemalloc_ \
+    -DJEMALLOC_CACHE_OBLIVIOUS=OFF \
+    -DJEMALLOC_PROF=ON \
+    -DJEMALLOC_PROF_LIBUNWIND=ON \
+    -DJEMALLOC_WITH_MALLOC_CONF="$compile_time_malloc_conf" \
+    -DJEMALLOC_READLINKAT=ON \
+    -DJEMALLOC_OPT_SAFETY_CHECKS=ON \
+    -DJEMALLOC_UAF_DETECTION=ON \
+    -DJEMALLOC_FORCE_GETENV=ON
 
 log_info "Building with compilation database (bear)..."
-bear -- make -s -j "$(nproc)"
+bear -- cmake --build build -j "$(nproc)"
 
 # Deduplicate compilation database
 # We end up with duplicate entries for each output type (.o, .d, .sym, etc.)

@@ -13,7 +13,7 @@ int main(void) {
     printf("Allocation successful: %p\n", ptr);
 
     free(ptr);
-    
+
     printf("Test passed: find_package(jemalloc) integration works!\n");
     return 0;
 }

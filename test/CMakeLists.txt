@@ -16,7 +16,7 @@ function(add_jemalloc_test test_name)
     if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${test_source}")
         set(test_source "integration/${test_name}.c")
     endif()
-    
+
     # Create test executable (commented out until test framework is ready)
     # add_executable(${test_name} ${test_source})
     # target_link_libraries(${test_name} PRIVATE

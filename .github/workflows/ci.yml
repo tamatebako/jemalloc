@@ -102,7 +102,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # Install CMake and Ninja using lukka/get-cmake (works on all platforms including ARM64)
       - name: Get CMake and Ninja
@@ -217,7 +217,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Build and test on FreeBSD
         uses: vmactions/freebsd-vm@v1
@@ -750,7 +750,7 @@ jobs:
     steps:
       - name: Checkout (Alpine x64)
         if: matrix.arch == 'x64'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkout (Alpine ARM64)
         if: matrix.arch == 'arm64'
@@ -873,7 +873,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # Install CMake and Ninja using lukka/get-cmake (works on all platforms including ARM64)
       - name: Get CMake and Ninja
@@ -975,7 +975,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # Install CMake and Ninja using lukka/get-cmake (works on all platforms including ARM64)
       - name: Get CMake and Ninja

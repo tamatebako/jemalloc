@@ -1,0 +1,10 @@
+jemalloc provides CMake targets:
+
+    find_package(jemalloc CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE jemalloc::jemalloc)
+
+Tebako fork features:
+- Full ARM64 support on Windows (VS 2015-2022)
+- musl libc support with ARM64 outline atomics fix
+- Apple Silicon (macOS ARM64) support
+- Comprehensive platform coverage via extensive CI

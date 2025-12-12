@@ -459,7 +459,7 @@ zone_register(void) {
 	 * to check for the existence of malloc_default_purgeable_zone() at
 	 * run time.
 	 */
-	purgeable_zone = (malloc_default_purgeable_zone == NULL)
+	purgeable_zone = (&malloc_default_purgeable_zone == NULL)
 	    ? NULL
 	    : malloc_default_purgeable_zone();
 

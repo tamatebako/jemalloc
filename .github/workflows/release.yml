@@ -53,15 +53,6 @@ jobs:
           echo "Release notes extracted:"
           cat release-notes.txt
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y autoconf
-
-      - name: Generate configure script
-        run: |
-          autoconf
-
       - name: Create source tarball
         run: |
           TARBALL="jemalloc-${{ env.VERSION }}.tar.gz"

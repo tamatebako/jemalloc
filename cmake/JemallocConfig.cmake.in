@@ -1,60 +1,49 @@
-# JemallocConfig.cmake
-# --------------------
-#
-# jemalloc CMake package configuration file
-#
-# This file is installed by jemalloc and provides the jemalloc::jemalloc target.
-#
-# Usage:
-#   find_package(jemalloc CONFIG REQUIRED)
-#   target_link_libraries(your_target PRIVATE jemalloc::jemalloc)
+# JemallocConfig.cmake.in
+# CMake package configuration file for jemalloc
 
 @PACKAGE_INIT@
 
-set(jemalloc_VERSION "@jemalloc_version@")
-set(jemalloc_VERSION_MAJOR "@jemalloc_version_major@")
-set(jemalloc_VERSION_MINOR "@jemalloc_version_minor@")
-set(jemalloc_VERSION_PATCH "@jemalloc_version_bugfix@")
+# Provide package variables
+set(jemalloc_VERSION "@JEMALLOC_VERSION@")
+set(jemalloc_VERSION_MAJOR "@JEMALLOC_VERSION_MAJOR@")
+set(jemalloc_VERSION_MINOR "@JEMALLOC_VERSION_MINOR@")
+set(jemalloc_VERSION_PATCH "@JEMALLOC_VERSION_PATCH@")
 
-# Set paths using PACKAGE_PREFIX_DIR (provided by @PACKAGE_INIT@)
+# Compute installation prefix
+get_filename_component(jemalloc_CMAKE_DIR "${CMAKE_CURRENT_LIST_FILE}" PATH)
+get_filename_component(jemalloc_PREFIX "${jemalloc_CMAKE_DIR}/../../../" ABSOLUTE)
+
+# Set include and library directories
 set_and_check(jemalloc_INCLUDE_DIR "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
-set_and_check(jemalloc_LIB_DIR "@PACKAGE_CMAKE_INSTALL_LIBDIR@")
+set_and_check(jemalloc_LIBRARY_DIR "@PACKAGE_CMAKE_INSTALL_LIBDIR@")
 
-# Find dependencies
-if(UNIX AND NOT APPLE)
-    find_package(Threads REQUIRED)
+# Find dependencies required by jemalloc
+include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+
+# Import targets
+include("${CMAKE_CURRENT_LIST_DIR}/JemallocTargets.cmake")
+
+# Check which targets are available
+set(jemalloc_LIBRARIES "")
+if(TARGET jemalloc::jemalloc_static)
+    list(APPEND jemalloc_LIBRARIES jemalloc::jemalloc_static)
+endif()
+if(TARGET jemalloc::jemalloc_shared)
+    list(APPEND jemalloc_LIBRARIES jemalloc::jemalloc_shared)
 endif()
 
-# Find the library
-find_library(jemalloc_LIBRARY
-    NAMES jemalloc
-    PATHS ${jemalloc_LIB_DIR}
-    NO_DEFAULT_PATH
-)
-
-if(NOT jemalloc_LIBRARY)
-    set(jemalloc_FOUND FALSE)
-    return()
-endif()
-
-# Set output variables for compatibility
-set(jemalloc_LIBRARIES ${jemalloc_LIBRARY})
-set(jemalloc_INCLUDE_DIRS ${jemalloc_INCLUDE_DIR})
-
-# Create imported target (lowercase namespace)
+# Main target alias
 if(NOT TARGET jemalloc::jemalloc)
-    add_library(jemalloc::jemalloc UNKNOWN IMPORTED)
-    set_target_properties(jemalloc::jemalloc PROPERTIES
-        IMPORTED_LOCATION "${jemalloc_LIBRARY}"
-        INTERFACE_INCLUDE_DIRECTORIES "${jemalloc_INCLUDE_DIR}"
-    )
-
-    # Add platform-specific dependencies
-    if(UNIX AND NOT APPLE)
-        set_property(TARGET jemalloc::jemalloc APPEND PROPERTY
-            INTERFACE_LINK_LIBRARIES Threads::Threads
-        )
+    if(TARGET jemalloc::jemalloc_static)
+        add_library(jemalloc::jemalloc ALIAS jemalloc::jemalloc_static)
+    elseif(TARGET jemalloc::jemalloc_shared)
+        add_library(jemalloc::jemalloc ALIAS jemalloc::jemalloc_shared)
     endif()
 endif()
+
+# Standard find_package variables
+set(jemalloc_FOUND TRUE)
+set(jemalloc_INCLUDE_DIRS ${jemalloc_INCLUDE_DIR})
 
 check_required_components(jemalloc)

@@ -18,7 +18,7 @@ if(JEMALLOC_ZONE)
 endif()
 
 # Group public headers
-source_group("Header Files\\Public" 
+source_group("Header Files\\Public"
     REGULAR_EXPRESSION "include/jemalloc/[^/]+\\.h$"
 )
 
@@ -40,8 +40,8 @@ source_group("Header Files\\Internal\\Other"
 )
 
 # Group generated headers
-source_group("Header Files\\Generated" 
-    FILES 
+source_group("Header Files\\Generated"
+    FILES
         ${JEMALLOC_GENERATED_INCLUDE_DIR}/jemalloc/jemalloc_defs.h
         ${JEMALLOC_GENERATED_INCLUDE_DIR}/jemalloc/internal/jemalloc_internal_defs.h
 )

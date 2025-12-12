@@ -241,6 +241,51 @@ jobs:
             cd build
             ctest --output-on-failure
 
+  # Level 1: RISC-V builds (smoke tests)
+  # NOTE: Uses QEMU emulation via run-on-arch-action - slower than native execution
+  # QEMU can be 10-25x slower than native for compute-intensive tasks
+  riscv:
+    name: RISC-V ${{ matrix.distro }} ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: riscv64
+            distro: ubuntu24.04
+            cc: gcc
+            cxx: g++
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build and test on RISC-V
+        uses: uraimo/run-on-arch-action@v2
+        with:
+          arch: ${{ matrix.arch }}
+          distro: ${{ matrix.distro }}
+          githubToken: ${{ github.token }}
+
+          install: |
+            apt-get update -q -y
+            apt-get install -q -y cmake ninja-build gcc g++ make
+
+          run: |
+            set -e
+            echo "==> Configure with CMake"
+            CC=${{ matrix.cc }} CXX=${{ matrix.cxx }} cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+            echo "==> Build"
+            cmake --build build
+
+            echo "==> Install"
+            cmake --install build --prefix $PWD/install
+
+            echo "==> Run tests"
+            cd build
+            ctest --output-on-failure
+
   # Level 1: Alpine Linux (native musl libc)
   alpine-musl:
     name: ${{ matrix.name }}
@@ -267,7 +312,7 @@ jobs:
     steps:
       - name: Checkout (Alpine x64)
         if: matrix.os == 'ubuntu-24.04'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkout (Alpine ARM64)
         if: matrix.os == 'ubuntu-24.04-arm'
@@ -504,7 +549,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install dependencies
         run: |
@@ -592,7 +637,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install CMake and Ninja using lukka/get-cmake
         uses: lukka/get-cmake@latest
@@ -661,7 +706,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install dependencies
         run: |
@@ -712,6 +757,92 @@ jobs:
           echo "==> Test"
           cd build
           ctest --output-on-failure
+
+  # Level 2: RISC-V configure flags (runs after smoke tests succeed)
+  # NOTE: QEMU emulation is significantly slower - tests take longer than native
+  riscv-configure-flags:
+    name: RISC-V flags - ${{ matrix.flags }}
+    runs-on: ubuntu-latest
+    needs: [riscv, test-cmake-builds, test-vcpkg-integration]
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        flags:
+          # Essential single flags
+          - --enable-debug
+          - --enable-prof
+          - --disable-stats
+          - --disable-libdl
+          - --enable-opt-safety-checks
+          - --with-lg-page=16
+          # Important combinations
+          - --enable-debug --enable-prof
+          - --enable-debug --disable-stats
+          - --enable-prof --disable-stats
+          - --disable-stats --disable-libdl
+          # Runtime config options
+          - --with-malloc-conf=tcache:false
+          - --with-malloc-conf=percpu_arena:percpu
+          - --with-malloc-conf=background_thread:true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build and test on RISC-V
+        uses: uraimo/run-on-arch-action@v2
+        with:
+          arch: riscv64
+          distro: ubuntu24.04
+          githubToken: ${{ github.token }}
+
+          install: |
+            apt-get update -q -y
+            apt-get install -q -y cmake ninja-build gcc g++ make
+
+          run: |
+            set -e
+
+            # Translate configure flags to CMake options
+            CMAKE_FLAGS=""
+
+            # Build type
+            if echo "${{ matrix.flags }}" | grep -q -- "--enable-debug"; then
+              CMAKE_FLAGS="$CMAKE_FLAGS -DCMAKE_BUILD_TYPE=Debug"
+            else
+              CMAKE_FLAGS="$CMAKE_FLAGS -DCMAKE_BUILD_TYPE=Release"
+            fi
+
+            # Feature flags
+            echo "${{ matrix.flags }}" | grep -q -- "--enable-prof" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_PROF=ON"
+            echo "${{ matrix.flags }}" | grep -q -- "--disable-stats" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_STATS=OFF"
+            echo "${{ matrix.flags }}" | grep -q -- "--disable-libdl" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_LIBDL=OFF"
+            echo "${{ matrix.flags }}" | grep -q -- "--enable-opt-safety-checks" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_OPT_SAFETY_CHECKS=ON"
+
+            # Page size
+            if echo "${{ matrix.flags }}" | grep -q -- "--with-lg-page=16"; then
+              CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_LG_PAGE=16"
+            fi
+
+            # Malloc conf (extract value after =)
+            if echo "${{ matrix.flags }}" | grep -q -- "--with-malloc-conf="; then
+              MALLOC_CONF=$(echo "${{ matrix.flags }}" | grep -o -- '--with-malloc-conf=[^ ]*' | cut -d= -f2-)
+              CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_CONFIG_MALLOC_CONF=$MALLOC_CONF"
+            fi
+
+            echo "==> Configure with CMake (FLAGS=${{ matrix.flags }})"
+            CC=gcc CXX=g++ cmake -B build -G Ninja $CMAKE_FLAGS
+
+            echo "==> Build"
+            cmake --build build
+
+            echo "==> Install"
+            cmake --install build --prefix $PWD/install
+
+            echo "==> Test"
+            cd build
+            ctest --output-on-failure
 
   # Level 2: Alpine Linux (musl) configure flags
   alpine-configure-flags:

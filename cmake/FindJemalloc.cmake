@@ -85,10 +85,10 @@ if(Jemalloc_FOUND)
     set(Jemalloc_LIBRARIES ${Jemalloc_LIBRARY})
     set(Jemalloc_INCLUDE_DIRS ${Jemalloc_INCLUDE_DIR})
 
-    # Create imported target if not already exists
-    if(NOT TARGET Jemalloc::jemalloc)
-        add_library(Jemalloc::jemalloc UNKNOWN IMPORTED)
-        set_target_properties(Jemalloc::jemalloc PROPERTIES
+    # Create imported target if not already exists (lowercase namespace)
+    if(NOT TARGET jemalloc::jemalloc)
+        add_library(jemalloc::jemalloc UNKNOWN IMPORTED)
+        set_target_properties(jemalloc::jemalloc PROPERTIES
             IMPORTED_LOCATION "${Jemalloc_LIBRARY}"
             INTERFACE_INCLUDE_DIRECTORIES "${Jemalloc_INCLUDE_DIR}"
         )
@@ -96,7 +96,7 @@ if(Jemalloc_FOUND)
         # Add pthread dependency on Unix systems
         if(UNIX AND NOT APPLE)
             find_package(Threads REQUIRED)
-            set_property(TARGET Jemalloc::jemalloc APPEND PROPERTY
+            set_property(TARGET jemalloc::jemalloc APPEND PROPERTY
                 INTERFACE_LINK_LIBRARIES Threads::Threads
             )
         endif()

@@ -1,0 +1,794 @@
+= CMake Integration Guide for jemalloc
+:toc:
+:toclevels: 3
+:sectnums:
+
+== Quick Start
+
+=== Prerequisites
+
+* CMake 3.24 or later
+* autoconf and make (required for building jemalloc)
+* C/C++ compiler (gcc, clang, or MSVC)
+
+=== Basic CMake Build
+
+[source,bash]
+----
+git clone https://github.com/tamatebako/jemalloc.git
+cd jemalloc
+mkdir build && cd build
+cmake ..
+cmake --build .
+cmake --install . --prefix /usr/local
+----
+
+=== First Usage Example
+
+After installation, use jemalloc in your CMake project:
+
+[source,cmake]
+----
+cmake_minimum_required(VERSION 3.24)
+project(myapp)
+
+find_package(jemalloc CONFIG REQUIRED)
+
+add_executable(myapp main.c)
+target_link_libraries(myapp PRIVATE jemalloc::jemalloc)
+----
+
+[source,c]
+----
+// main.c
+#include <jemalloc/jemalloc.h>
+#include <stdio.h>
+
+int main() {
+    void* ptr = malloc(1024);
+    if (ptr) {
+        printf("jemalloc allocation successful\n");
+        free(ptr);
+    }
+    return 0;
+}
+----
+
+== Integration Methods
+
+jemalloc supports three primary CMake integration methods. Choose based on your project's needs:
+
+[cols="1,2,2",options="header"]
+|===
+|Method |Best For |Pros/Cons
+
+|`find_package()`
+|Production applications
+|✓ Clean separation, ✗ Requires installation
+
+|`add_subdirectory()`
+|Monorepo or embedded use
+|✓ No installation needed, ✗ Couples build systems
+
+|`FetchContent`
+|Modern CMake projects
+|✓ Automatic download, ✗ Slower first configure
+|===
+
+=== Method 1: find_package() (Recommended)
+
+**When to use:** Production applications where jemalloc is a system dependency.
+
+**Step 1:** Install jemalloc using CMake:
+
+[source,bash]
+----
+cd jemalloc
+mkdir build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX=/usr/local \
+      ..
+cmake --build .
+sudo cmake --install .
+----
+
+**Step 2:** Use in your project:
+
+[source,cmake]
+----
+cmake_minimum_required(VERSION 3.24)
+project(myapp C)
+
+# Find installed jemalloc
+find_package(jemalloc CONFIG REQUIRED)
+
+# Verify version
+message(STATUS "Found jemalloc ${jemalloc_VERSION}")
+
+add_executable(myapp main.c)
+target_link_libraries(myapp PRIVATE jemalloc::jemalloc)
+----
+
+**Step 3:** Configure and build:
+
+[source,bash]
+----
+cd myapp
+cmake -B build
+cmake --build build
+----
+
+**Complete example:** See link:../test/cmake/find_package/[`test/cmake/find_package/`]
+
+=== Method 2: add_subdirectory()
+
+**When to use:** Embedding jemalloc directly in your project (monorepo, vendoring).
+
+**Project structure:**
+
+----
+myproject/
+├── CMakeLists.txt
+├── main.c
+└── third_party/
+    └── jemalloc/  # Git submodule or copy
+----
+
+**CMakeLists.txt:**
+
+[source,cmake]
+----
+cmake_minimum_required(VERSION 3.24)
+project(myapp C)
+
+# Configure jemalloc options before add_subdirectory
+set(JEMALLOC_BUILD_SHARED OFF CACHE BOOL "")
+set(JEMALLOC_BUILD_STATIC ON CACHE BOOL "")
+set(JEMALLOC_ENABLE_STATS ON CACHE BOOL "")
+
+# Add jemalloc as subdirectory
+add_subdirectory(third_party/jemalloc)
+
+# Verify target exists
+if(TARGET jemalloc::jemalloc)
+    message(STATUS "jemalloc::jemalloc target available")
+endif()
+
+add_executable(myapp main.c)
+target_link_libraries(myapp PRIVATE jemalloc::jemalloc)
+----
+
+**Build:**
+
+[source,bash]
+----
+cmake -B build
+cmake --build build
+----
+
+**Complete example:** See link:../test/cmake/add_subdirectory/[`test/cmake/add_subdirectory/`]
+
+=== Method 3: FetchContent
+
+**When to use:** Modern CMake projects that download dependencies automatically.
+
+**CMakeLists.txt:**
+
+[source,cmake]
+----
+cmake_minimum_required(VERSION 3.24)
+project(myapp C)
+
+include(FetchContent)
+
+# Fetch jemalloc from GitHub
+FetchContent_Declare(
+    jemalloc
+    GIT_REPOSITORY https://github.com/tamatebako/jemalloc.git
+    GIT_TAG        main  # Or specific version tag
+)
+
+# Configure jemalloc options
+set(JEMALLOC_BUILD_SHARED OFF CACHE BOOL "")
+set(JEMALLOC_BUILD_STATIC ON CACHE BOOL "")
+
+# Make jemalloc available
+FetchContent_MakeAvailable(jemalloc)
+
+add_executable(myapp main.c)
+target_link_libraries(myapp PRIVATE jemalloc::jemalloc)
+----
+
+**First configure (downloads jemalloc):**
+
+[source,bash]
+----
+cmake -B build  # Downloads and configures jemalloc
+cmake --build build
+----
+
+**Subsequent builds use cached download.**
+
+**Complete example:** See link:../test/cmake/fetchcontent/[`test/cmake/fetchcontent/`]
+
+== Configuration Options
+
+All CMake options can be set via `-D` flag or `set()` before `add_subdirectory()`.
+
+=== Build Type Options
+
+[cols="2,1,3",options="header"]
+|===
+|Option |Default |Description
+
+|`JEMALLOC_BUILD_SHARED`
+|`ON`
+|Build shared library (`.so`, `.dylib`, `.dll`)
+
+|`JEMALLOC_BUILD_STATIC`
+|`ON`
+|Build static library (`.a`, `.lib`)
+|===
+
+**Example:** Build static library only:
+
+[source,bash]
+----
+cmake -DJEMALLOC_BUILD_SHARED=OFF -DJEMALLOC_BUILD_STATIC=ON ..
+----
+
+=== Feature Options
+
+[cols="2,1,3",options="header"]
+|===
+|Option |Default |Description
+
+|`JEMALLOC_ENABLE_STATS`
+|`ON`
+|Enable statistics gathering (mallctl)
+
+|`JEMALLOC_ENABLE_PROF`
+|`OFF`
+|Enable heap profiling support
+
+|`JEMALLOC_ENABLE_DOC`
+|`OFF`
+|Build documentation (requires xsltproc)
+|===
+
+**Example:** Enable profiling for performance analysis:
+
+[source,bash]
+----
+cmake -DJEMALLOC_ENABLE_PROF=ON ..
+----
+
+=== CMake Standard Options
+
+[cols="2,3",options="header"]
+|===
+|Option |Description
+
+|`CMAKE_INSTALL_PREFIX`
+|Installation directory (default: `/usr/local`)
+
+|`CMAKE_BUILD_TYPE`
+|`Release`, `Debug`, `RelWithDebInfo`, `MinSizeRel`
+
+|`CMAKE_C_COMPILER`
+|C compiler (e.g., `gcc`, `clang`, `cl`)
+
+|`CMAKE_CXX_COMPILER`
+|C++ compiler (optional, for C++ support)
+|===
+
+**Example:** Custom installation with debug symbols:
+
+[source,bash]
+----
+cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+      -DCMAKE_INSTALL_PREFIX=$HOME/local \
+      ..
+----
+
+== Platform-Specific Notes
+
+=== Windows ARM64 Support
+
+**First jemalloc variant with full Windows ARM64 support** (Visual Studio 2015-2022).
+
+**Requirements:**
+
+* Windows 11 on ARM64
+* Visual Studio 2015 or later with ARM64 tools
+* CMake 3.24+
+
+**Build example:**
+
+[source,powershell]
+----
+# Using MSYS2 with MSVC
+cmake -G "Unix Makefiles" -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl ..
+cmake --build .
+----
+
+**MSVC project files:** Available in link:../msvc/[`msvc/`] directory for all VS versions.
+
+**Key features:**
+
+* Native ARM64 intrinsics (`__yield()` for CPU spinwait)
+* Comprehensive CI testing on `windows-11-arm` runners
+* All build configurations supported (Debug, Release, static, shared)
+
+=== Linux musl ARM64
+
+**Includes fix for GH issue #2782** (outline atomics linking error).
+
+**What is musl?**
+
+* Lightweight alternative C library to glibc
+* Used by Alpine Linux, containers, embedded systems
+* Different behavior for `MADV_DONTNEED` (zeros pages)
+
+**ARM64 outline atomics fix:**
+
+The configure script automatically detects `musl + ARM64` and adds `-mno-outline-atomics` flag to prevent linking errors with `__getauxval`.
+
+**Build on Alpine Linux:**
+
+[source,bash]
+----
+# Install dependencies
+apk add cmake make gcc g++ autoconf linux-headers
+
+# Build jemalloc
+cmake -B build
+cmake --build build
+----
+
+**Cross-compile from Ubuntu:**
+
+[source,bash]
+----
+# Install cross-compiler
+sudo apt-get install gcc-aarch64-linux-gnu
+
+# Configure with musl toolchain
+CC=aarch64-linux-musl-gcc cmake -B build
+cmake --build build
+----
+
+**Detection output:**
+
+----
+-- Detected musl libc
+-- ARM64 + musl detected - outline atomics fix will be applied by configure
+--   (Resolves GH issue #2782: -mno-outline-atomics flag auto-added)
+----
+
+=== macOS Apple Silicon
+
+**Native ARM64 support** for Apple Silicon (M1/M2/M3).
+
+**Build:**
+
+[source,bash]
+----
+# Native ARM64 build
+cmake -B build
+cmake --build build
+----
+
+**Universal binary (x86_64 + ARM64):**
+
+[source,bash]
+----
+cmake -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -B build
+cmake --build build
+----
+
+**Key features:**
+
+* Native `arm64` architecture support
+* Zone allocator integration
+* Tested on macOS 13-15 (GitHub Actions)
+
+=== Cross-Compilation
+
+**Linux 32-bit on x64:**
+
+[source,bash]
+----
+cmake -DCMAKE_C_FLAGS="-m32" \
+      -DCMAKE_CXX_FLAGS="-m32" \
+      -B build
+cmake --build build
+----
+
+**Windows x86 on x64:**
+
+[source,powershell]
+----
+# MSYS2 MINGW32
+cmake -G "MSYS Makefiles" -B build
+cmake --build build
+----
+
+**ARM64 on x64 Linux:**
+
+[source,bash]
+----
+CC=aarch64-linux-gnu-gcc \
+CXX=aarch64-linux-gnu-g++ \
+cmake -B build
+cmake --build build
+----
+
+== vcpkg Integration
+
+vcpkg is a C++ package manager that can install jemalloc automatically.
+
+=== Using Tebako Fork as Overlay
+
+Since jemalloc may not be in the official vcpkg registry yet, use the Tebako fork as an overlay.
+
+**Step 1:** Clone vcpkg (if not already installed):
+
+[source,bash]
+----
+git clone https://github.com/microsoft/vcpkg.git
+cd vcpkg
+./bootstrap-vcpkg.sh  # or .\bootstrap-vcpkg.bat on Windows
+----
+
+**Step 2:** Add Tebako jemalloc as overlay:
+
+[source,bash]
+----
+# Clone jemalloc fork
+git clone https://github.com/tamatebako/jemalloc.git
+
+# Add overlay path to vcpkg configuration
+export VCPKG_OVERLAY_PORTS=/path/to/jemalloc/ports
+----
+
+Or use `vcpkg-configuration.json`:
+
+[source,json]
+----
+{
+  "overlay-ports": [
+    "/path/to/jemalloc/ports"
+  ]
+}
+----
+
+**Step 3:** Install jemalloc:
+
+[source,bash]
+----
+vcpkg install jemalloc
+----
+
+=== Classic Mode
+
+**Install globally:**
+
+[source,bash]
+----
+vcpkg install jemalloc
+----
+
+**Use in project:**
+
+[source,cmake]
+----
+find_package(jemalloc CONFIG REQUIRED)
+target_link_libraries(myapp PRIVATE jemalloc::jemalloc)
+----
+
+**Build with vcpkg toolchain:**
+
+[source,bash]
+----
+cmake -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake ..
+cmake --build .
+----
+
+=== Manifest Mode (Recommended)
+
+**Create `vcpkg.json` in your project:**
+
+[source,json]
+----
+{
+  "name": "myapp",
+  "version": "1.0.0",
+  "dependencies": [
+    "jemalloc"
+  ]
+}
+----
+
+**Configure (automatically installs dependencies):**
+
+[source,bash]
+----
+cmake -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake -B build
+cmake --build build
+----
+
+=== Version Pinning
+
+**Pin to specific version in `vcpkg.json`:**
+
+[source,json]
+----
+{
+  "name": "myapp",
+  "version": "1.0.0",
+  "dependencies": [
+    {
+      "name": "jemalloc",
+      "version>=": "5.3.0"
+    }
+  ]
+}
+----
+
+**See also:** link:../ports/jemalloc/usage[`ports/jemalloc/usage`] for vcpkg-specific examples.
+
+== Troubleshooting
+
+=== Configure Script Not Found
+
+**Error:**
+
+----
+CMake Error: configure script not found
+----
+
+**Solution:**
+
+The CMakeLists.txt automatically runs `autogen.sh` if configure is missing. Ensure autoconf is installed:
+
+[source,bash]
+----
+# Ubuntu/Debian
+sudo apt-get install autoconf
+
+# macOS
+brew install autoconf
+
+# Alpine
+apk add autoconf
+----
+
+=== jemalloc::jemalloc Target Not Found
+
+**Error when using find_package():**
+
+----
+CMake Error: Could not find a package configuration file provided by "jemalloc"
+----
+
+**Solution 1:** Specify installation prefix:
+
+[source,bash]
+----
+cmake -Djemalloc_DIR=/usr/local/lib/cmake/jemalloc ..
+----
+
+**Solution 2:** Set `CMAKE_PREFIX_PATH`:
+
+[source,bash]
+----
+cmake -DCMAKE_PREFIX_PATH=/usr/local ..
+----
+
+**Solution 3:** Install to standard location:
+
+[source,bash]
+----
+sudo cmake --install . --prefix /usr/local
+----
+
+=== Windows ARM64 Build Fails
+
+**Error:**
+
+----
+fatal error C1033: cannot open program database
+----
+
+**Cause:** MSVC parallel build PDB contention (fixed in configure.ac with `-Z7` flag).
+
+**Solution:** Rebuild jemalloc from latest source:
+
+[source,bash]
+----
+cd jemalloc
+./autogen.sh  # Regenerates configure with fix
+cmake -B build
+cmake --build build
+----
+
+=== musl ARM64 Linking Error
+
+**Error:**
+
+----
+undefined reference to `__getauxval'
+----
+
+**Cause:** GCC outline atomics on musl (GH issue #2782).
+
+**Solution:** The fix is automatic in configure.ac. Ensure you're using the latest source:
+
+[source,bash]
+----
+git pull origin main
+./autogen.sh
+cmake -B build
+cmake --build build
+----
+
+**Verification:** Check CMake output for:
+
+----
+-- ARM64 + musl detected - outline atomics fix will be applied by configure
+----
+
+=== Debug vs Release Builds
+
+**Debug builds:**
+
+Use for development with symbols and assertions:
+
+[source,bash]
+----
+cmake -DCMAKE_BUILD_TYPE=Debug ..
+----
+
+**Release builds:**
+
+Use for production with optimizations:
+
+[source,bash]
+----
+cmake -DCMAKE_BUILD_TYPE=Release ..
+----
+
+**RelWithDebInfo:**
+
+Optimized with debug symbols (recommended for profiling):
+
+[source,bash]
+----
+cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
+----
+
+=== Thread Library Not Found (Linux)
+
+**Error:**
+
+----
+undefined reference to `pthread_create'
+----
+
+**Solution:** The CMakeLists.txt automatically links pthreads on Linux. If you see this error, ensure Threads package is available:
+
+[source,bash]
+----
+# Ubuntu
+sudo apt-get install libc6-dev
+
+# Already included in most distributions
+----
+
+== Advanced Topics
+
+=== Using Both Static and Shared Libraries
+
+By default, both are built. Access them via separate targets:
+
+[source,cmake]
+----
+# Use static library explicitly
+target_link_libraries(myapp_static PRIVATE jemalloc_static)
+
+# Use shared library explicitly
+target_link_libraries(myapp_shared PRIVATE jemalloc_shared)
+
+# Use default (static if both enabled)
+target_link_libraries(myapp PRIVATE jemalloc::jemalloc)
+----
+
+=== Custom Configure Flags via CMake
+
+Pass additional flags to the autotools configure script:
+
+[source,cmake]
+----
+# In your CMakeLists.txt before add_subdirectory()
+set(JEMALLOC_EXTRA_CONFIGURE_ARGS "--with-jemalloc-prefix=je_" CACHE STRING "")
+----
+
+Currently not exposed via CMake options, but can be extended in `CMakeLists.txt` if needed.
+
+=== Profiling Support
+
+Enable heap profiling:
+
+[source,bash]
+----
+cmake -DJEMALLOC_ENABLE_PROF=ON ..
+cmake --build .
+----
+
+Use `MALLOC_CONF` environment variable at runtime:
+
+[source,bash]
+----
+export MALLOC_CONF="prof:true,prof_prefix:jeprof.out"
+./myapp
+jeprof --show_bytes myapp jeprof.out.*.heap
+----
+
+== See Also
+
+* link:../README.adoc[README.adoc] - Project overview and quick start
+* link:../INSTALL.adoc[INSTALL.adoc] - Detailed installation instructions (autoconf and CMake)
+* link:../test/cmake/[test/cmake/] - Complete integration test examples
+* link:../ports/jemalloc/[ports/jemalloc/] - vcpkg port files
+* link:https://github.com/tamatebako/jemalloc[GitHub Repository]
+* link:https://github.com/jemalloc/jemalloc[Upstream jemalloc]
+
+== Key Features of This Fork
+
+The Tebako fork of jemalloc provides enhanced platform support:
+
+[cols="2,3",options="header"]
+|===
+|Feature |Description
+
+|**Windows ARM64**
+|First jemalloc variant with full Windows ARM64 support (VS 2015-2022)
+
+|**musl ARM64**
+|Fixed outline atomics linking issue (GH #2782) with auto-detection
+
+|**Apple Silicon**
+|Native macOS ARM64 support for M1/M2/M3 processors
+
+|**Comprehensive CI**
+|~205 CI jobs covering all platforms and architectures
+
+|**CMake First-Class**
+|Proper `find_package()` support with IMPORTED targets
+
+|**vcpkg Ready**
+|Easy installation via package manager with overlay support
+|===
+
+All features are tested on:
+
+* Linux: Ubuntu 22.04/24.04 (x64, ARM64, x86 cross-compile) with glibc and musl
+* Windows: Server 2022/2025, Windows 11 (x64, x86, ARM64)
+* macOS: 13-15 (Intel x64, Apple Silicon ARM64)
+* FreeBSD: 14.x, 15.x
+
+== Contributing
+
+Contributions are welcome! Please see the main link:../README.adoc[README] for contribution guidelines.
+
+For CMake-specific improvements, ensure:
+
+1. All three integration methods work (`find_package`, `add_subdirectory`, `FetchContent`)
+2. Platform detection logic remains accurate
+3. Examples in `test/cmake/` are updated
+4. Documentation reflects changes
+
+== License
+
+jemalloc is licensed under the BSD 2-Clause License. See link:../COPYING[COPYING] for details.

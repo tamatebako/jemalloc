@@ -644,9 +644,6 @@ install_lib_cmake:
 	     -e 's|@PACKAGE_INIT@||g' \
 	     $(srcroot)cmake/JemallocConfig.cmake.in > $(objroot)cmake/JemallocConfig.cmake
 	$(INSTALL) -m 644 $(objroot)cmake/JemallocConfig.cmake $(LIBDIR)/cmake/jemalloc
-	@sed -e 's|@jemalloc_version@|@jemalloc_version@|g' \
-	     $(srcroot)cmake/JemallocConfigVersion.cmake.in > $(objroot)cmake/JemallocConfigVersion.cmake
-	$(INSTALL) -m 644 $(objroot)cmake/JemallocConfigVersion.cmake $(LIBDIR)/cmake/jemalloc
 
 ifeq ($(enable_shared), 1)
 install_lib: install_lib_shared

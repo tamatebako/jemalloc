@@ -90,6 +90,15 @@ jobs:
             msvc: true
             msvc_arch: arm64
 
+          # Windows profiling test (validates new MSVC profiling backend)
+          - name: Windows x64 MSVC prof
+            os: windows-2022
+            cc: cl
+            cxx: cl
+            msvc: true
+            msvc_arch: x64
+            enable_prof: true
+
           # macOS
           - name: macOS Intel
             os: macos-15-intel
@@ -193,7 +202,7 @@ jobs:
         if: runner.os == 'Windows' && matrix.msvc
         run: |
           echo "==> Configure with CMake"
-          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake -B build -DCMAKE_BUILD_TYPE=Release ${{ matrix.enable_prof && '-DJEMALLOC_ENABLE_PROF=ON' || '' }}
           echo "==> Build"
           cmake --build build --config Release
           echo "==> Install"

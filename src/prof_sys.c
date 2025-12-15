@@ -7,11 +7,15 @@
 #include "jemalloc/internal/prof_data.h"
 #include "jemalloc/internal/prof_sys.h"
 
+#ifdef JEMALLOC_PROF_MSVC
+#include <windows.h>
+#include <tlhelp32.h>
+#endif
+
 #ifdef JEMALLOC_PROF_LIBUNWIND
 #	define UNW_LOCAL_ONLY
 #	include <libunwind.h>
 #endif
-
 #ifdef JEMALLOC_PROF_LIBGCC
 /*
  * We have a circular dependency -- jemalloc_internal.h tells us if we should
@@ -50,6 +54,25 @@ bt_init(prof_bt_t *bt, void **vec) {
 	bt->vec = vec;
 	bt->len = 0;
 }
+
+#ifdef JEMALLOC_PROF_MSVC
+static void
+prof_backtrace_impl(void **vec, unsigned *len, unsigned max_len) {
+	int nframes;
+
+	cassert(config_prof);
+	assert(*len == 0);
+	assert(vec != NULL);
+	assert(max_len <= PROF_BT_MAX_LIMIT);
+
+	nframes = CaptureStackBackTrace(0, max_len, vec, NULL);
+
+	if (nframes <= 0) {
+		return;
+	}
+	*len = nframes;
+}
+#endif
 
 #ifdef JEMALLOC_PROF_LIBUNWIND
 static void
@@ -677,6 +700,16 @@ prof_dump_check_possible_error(
 
 static int
 prof_dump_open_file_impl(const char *filename, int mode) {
+#ifdef _MSC_VER
+	/*
+	* On windows, creat only supports S_IREAD and S_IWRITE. Setting any
+	* other flags in the mode results in raising an assertion, crashing the
+	* program. This is because creat is implemented by (indirectly) calling
+	* sopen_s, which asserts if pmode contains an "invalid mode", AKA a mode
+	* that the CRT does not know how to handle.
+	*/
+	mode &= 0600;
+#endif
 	return creat(filename, mode);
 }
 prof_dump_open_file_t *JET_MUTABLE prof_dump_open_file =
@@ -779,7 +812,47 @@ prof_dump_maps(buf_writer_t *buf_writer) {
 	/* No proc map file to read on MacOS, dump dyld maps for backtrace. */
 	prof_dump_dyld_maps(buf_writer);
 }
-#else /* !__APPLE__ */
+#elif defined(_WIN32)
+#include <tlhelp32.h>
+
+static void
+prof_dump_maps_win32(buf_writer_t *buf_writer) {
+	HANDLE snapshot;
+	MODULEENTRY32 module;
+	char buffer[PATH_MAX + 1];
+
+	module.dwSize = sizeof(module);
+	snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, 0);
+	if (snapshot == INVALID_HANDLE_VALUE) {
+		return;
+	}
+
+	if (Module32First(snapshot, &module) == FALSE) {
+		goto label_error;
+	}
+
+	do {
+		malloc_snprintf(buffer, sizeof(buffer),
+		    "%016llx-%016llx: %s\n", (unsigned long long)(uintptr_t)module.modBaseAddr,
+		    (unsigned long long)((uintptr_t)module.modBaseAddr + module.modBaseSize),
+		    module.szExePath);
+		buf_writer_cb(buf_writer, buffer);
+	} while (Module32Next(snapshot, &module) == TRUE);
+
+label_error:
+	CloseHandle(snapshot);
+}
+
+prof_dump_open_maps_t *JET_MUTABLE prof_dump_open_maps = NULL;
+
+static void
+prof_dump_maps(buf_writer_t *buf_writer) {
+	buf_writer_cb(buf_writer, "\nMAPPED_LIBRARIES:\n");
+	/* No proc map file to read on win32, use CreateToolhelp32 to get mapping. */
+	prof_dump_maps_win32(buf_writer);
+}
+
+#else /* !__APPLE__ && !_WIN32 */
 #	ifndef _WIN32
 JEMALLOC_FORMAT_PRINTF(1, 2)
 static int

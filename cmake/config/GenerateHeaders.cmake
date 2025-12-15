@@ -453,6 +453,20 @@ if(JEMALLOC_HAVE_BUILTIN_CLZ)
     string(REGEX REPLACE "#undef JEMALLOC_HAVE_BUILTIN_CLZ\n" "#define JEMALLOC_HAVE_BUILTIN_CLZ 1\n" INTERNAL_DEFS_CONTENT "${INTERNAL_DEFS_CONTENT}")
 endif()
 
+# Profiling backend - JEMALLOC_PROF_MSVC (Windows profiling via CaptureStackBackTrace)
+if(JEMALLOC_PROF_MSVC)
+    string(REGEX REPLACE "#undef JEMALLOC_PROF_MSVC\n" "#define JEMALLOC_PROF_MSVC 1\n" INTERNAL_DEFS_CONTENT "${INTERNAL_DEFS_CONTENT}")
+else()
+    string(REGEX REPLACE "#undef JEMALLOC_PROF_MSVC\n" "/* #undef JEMALLOC_PROF_MSVC */\n" INTERNAL_DEFS_CONTENT "${INTERNAL_DEFS_CONTENT}")
+endif()
+
+# JEMALLOC_PROF - enable if profiling is enabled and backend detected
+if(JEMALLOC_ENABLE_PROF AND JEMALLOC_PROF)
+    string(REGEX REPLACE "#undef JEMALLOC_PROF\n" "#define JEMALLOC_PROF 1\n" INTERNAL_DEFS_CONTENT "${INTERNAL_DEFS_CONTENT}")
+else()
+    string(REGEX REPLACE "#undef JEMALLOC_PROF\n" "/* #undef JEMALLOC_PROF */\n" INTERNAL_DEFS_CONTENT "${INTERNAL_DEFS_CONTENT}")
+endif()
+
 # CRITICAL FIX: JEMALLOC_CONFIG_MALLOC_CONF must ALWAYS be defined as a string
 # Even if empty, it must be "" not undefined, because jemalloc_preamble.h uses it directly
 string(REGEX REPLACE "#undef JEMALLOC_CONFIG_MALLOC_CONF\n" "#define JEMALLOC_CONFIG_MALLOC_CONF \"${JEMALLOC_CONFIG_MALLOC_CONF}\"\n" INTERNAL_DEFS_CONTENT "${INTERNAL_DEFS_CONTENT}")

@@ -401,6 +401,57 @@ For platform-specific build instructions and ARM64 details, see
 link:doc/CMAKE_INTEGRATION.adoc#platform-specific-notes[CMAKE_INTEGRATION.adoc § Platform-Specific Notes].
 
 
+=== Windows profiling support
+
+The Tebako fork includes native heap profiling support on Windows using the
+`CaptureStackBackTrace()` Windows API. This enables full profiling capabilities
+on all supported Windows platforms, as authored by @roblabla.
+
+Features:
+
+* Works on x64, x86, and ARM64 architectures
+* Works with both MSVC and MinGW toolchains
+* Native API: Uses Windows `CaptureStackBackTrace()` for fast backtrace collection
+* CMake integrated: Automatically detected during build configuration
+
+Build with profiling enabled using CMake:
+
+[source,powershell]
+----
+# Enable profiling during build
+cmake -B build -DJEMALLOC_ENABLE_PROF=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+----
+
+Using heap profiling:
+
+[source,powershell]
+----
+# Enable profiling with automatic dumps
+set MALLOC_CONF=prof:true,lg_prof_sample:15,prof_final:true
+
+# Run your application
+your_program.exe
+
+# Heap dumps will be generated as jeprof.*.heap files
+----
+
+Common profiling options:
+
+`prof:true`:: Enable heap profiling
+`lg_prof_sample:N`:: Sample every 2^N bytes allocated (15 = 32KB)
+`prof_final:true`:: Dump heap profile on program exit
+`prof_prefix:path`:: Set prefix for heap dump filenames
+
+Limitations:
+
+* **Memory mapping info** - Module information is captured but symbol resolution requires PDB files
+* Windows profiling backend is based on link:https://github.com/jemalloc/jemalloc/pull/2694[upstream PR #2694] by @roblabla
+
+For detailed profiling usage and analysis tools, see
+link:doc_internal/PROFILING_INTERNALS.md[PROFILING_INTERNALS.md].
+
+
 == Cross-platform CI/CD
 
 The Tebako fork of jemalloc uses a comprehensive GitHub Actions CI/CD system

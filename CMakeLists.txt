@@ -42,6 +42,11 @@ include(cmake/checks/SystemHeaders.cmake)
 include(cmake/checks/MemoryFeatures.cmake)
 include(cmake/checks/ThreadSupport.cmake)
 
+# Profiling support detection (must come after platform detection)
+if(JEMALLOC_ENABLE_PROF)
+    include(cmake/checks/ProfilingSupport.cmake)
+endif()
+
 # ============================================================================
 # Platform-Specific Configuration
 # ============================================================================

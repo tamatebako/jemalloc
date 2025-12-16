@@ -32,6 +32,13 @@ install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/jemalloc
     PATTERN "*.in" EXCLUDE
 )
 
+# Install msvc_compat headers (required for Windows builds)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/msvc_compat
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    COMPONENT Development
+    FILES_MATCHING PATTERN "*.h"
+)
+
 # Install generated headers
 install(DIRECTORY ${JEMALLOC_GENERATED_INCLUDE_DIR}/jemalloc
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}

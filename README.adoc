@@ -452,6 +452,66 @@ For detailed profiling usage and analysis tools, see
 link:doc_internal/PROFILING_INTERNALS.md[PROFILING_INTERNALS.md].
 
 
+=== Windows malloc_conf override support
+
+The Tebako fork enables `malloc_conf` configuration override from libraries on
+Windows MSVC builds, matching the Unix weak symbol behavior. This was authored by @roblabla.
+
+==== General
+
+**Traditional limitation**: On MSVC, weak symbols aren't supported, so
+`malloc_conf` could only be overridden from object files (`.obj`), not from
+library files (`.lib`). This broke important scenarios:
+
+* Rust applications (always generate `.lib` files)
+* Multi-library projects where configuration is in a library
+* Dynamic library runtime configuration
+* Plugin architectures
+
+**Tebako solution**: Uses MSVC `/alternatename` linker directive to emulate weak
+symbols, enabling library-level overrides identical to Unix platforms.
+
+==== Usage
+
+Override `malloc_conf` from any source file in your application or library:
+
+[source,c]
+----
+// In your application or library (not just main.obj!)
+const char *je_malloc_conf = "narenas:2,tcache:true,dirty_decay_ms:5000";
+----
+
+This works identically to weak symbols on Unix platforms and is especially
+useful for:
+
+* Rust applications using FFI to jemalloc
+* Multi-language projects with library dependencies
+* Applications built from multiple static libraries
+* Systems where configuration must be embedded in libraries
+
+==== Implementation
+
+The implementation uses the MSVC `/alternatename` linker pragma:
+
+[source,c]
+----
+#pragma comment(linker, "/alternatename:je_malloc_conf=malloc_conf_default")
+----
+
+This tells the linker: "If `je_malloc_conf` isn't defined elsewhere, use
+`malloc_conf_default` (which is `NULL`)." Applications and libraries can override
+it just like on Unix.
+
+**Platform support**:
+
+* ✅ Windows MSVC x64, x86, ARM64 (uses `/alternatename`)
+* ✅ Windows MinGW x64, x86 (uses standard weak attributes)
+* ✅ All Unix platforms (uses weak attributes)
+
+Based on link:https://github.com/jemalloc/jemalloc/pull/2689[upstream PR #2689]
+by @roblabla.
+
+
 == Cross-platform CI/CD
 
 The Tebako fork of jemalloc uses a comprehensive GitHub Actions CI/CD system

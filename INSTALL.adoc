@@ -802,6 +802,81 @@ If the version is out of date, please
 https://github.com/Microsoft/vcpkg[create an issue or pull request] on the
 vcpkg repository.
 
+=== Runtime configuration via malloc_conf override
+
+Windows MSVC builds support `malloc_conf` override from libraries (not just
+object files), matching Unix behavior. This is particularly useful for Rust
+applications and multi-library projects.
+
+==== Usage
+
+Define `je_malloc_conf` in any source file within your application or library:
+
+[source,c]
+----
+// In any .c file in your application or library
+const char *je_malloc_conf = "dirty_decay_ms:1000,tcache:false";
+----
+
+This works from:
+
+* Object files (`.obj`) - traditional MSVC behavior
+* Static library files (`.lib`) - **NEW** via `/alternatename` emulation
+* Dynamic libraries - when configuration is embedded in the DLL
+
+==== Cross-platform consistency
+
+The same code works identically across all platforms:
+
+[source,c]
+----
+// This works on Windows MSVC, MinGW, Linux, macOS, FreeBSD
+const char *je_malloc_conf = "narenas:2,tcache:true";
+----
+
+**Platform implementations:**
+
+* **Windows MSVC**: Uses `/alternatename` linker directive to emulate weak symbols
+* **Windows MinGW**: Uses standard GCC weak attributes
+* **Unix platforms**: Uses weak attributes
+
+NOTE: MinGW builds use standard weak attributes and don't need the
+`/alternatename` mechanism. The weak symbol emulation is MSVC-specific.
+
+==== Use cases
+
+This feature enables:
+
+* **Rust FFI applications** - Rust always generates `.lib` files
+* **Multi-library projects** - Configuration in any library, not just the main executable
+* **Plugin architectures** - Plugins can provide their own configuration
+* **Testing frameworks** - Test libraries can override allocator behavior
+
+==== Technical details
+
+The implementation uses MSVC `/alternatename` linker pragma in
+[`src/jemalloc.c`](src/jemalloc.c:60):
+
+[source,c]
+----
+#pragma comment(linker, "/alternatename:je_malloc_conf=malloc_conf_default")
+----
+
+This tells the linker: "If `je_malloc_conf` isn't defined elsewhere, use
+`malloc_conf_default` (NULL)". When your code defines `je_malloc_conf`, the
+linker uses your definition instead.
+
+**Architecture-specific handling:**
+
+* 32-bit x86: Uses underscore prefix (`_je_malloc_conf`)
+* 64-bit x64: No underscore prefix
+* ARM64: No underscore prefix
+
+The implementation automatically handles these differences.
+
+Based on link:https://github.com/jemalloc/jemalloc/pull/2689[upstream PR #2689]
+by @roblabla.
+
 == Development
 
 If you intend to make non-trivial changes to jemalloc, use the

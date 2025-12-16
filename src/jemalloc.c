@@ -57,6 +57,50 @@ const char *je_malloc_conf_2_conf_harder
 #endif
         ;
 
+#ifdef _MSC_VER
+/*
+ * Emulate weak symbols on MSVC via /alternatename linker directive.
+ * This allows je_malloc_conf and je_malloc_conf_2_conf_harder to be overridden
+ * from library files (.lib), not just object files (.obj), enabling Rust FFI
+ * and multi-library configuration scenarios.
+ */
+
+/* Default values used when symbols are not overridden */
+static const char *malloc_conf_default = NULL;
+static const char *malloc_conf_2_conf_harder_default = NULL;
+
+/*
+ * Tell linker: if je_malloc_conf is not defined elsewhere, use malloc_conf_default.
+ * Note: 32-bit x86 uses underscore prefix, 64-bit and ARM64 don't.
+ */
+#  ifdef _M_IX86
+/* 32-bit x86: symbols have underscore prefix */
+#    pragma comment(linker, "/alternatename:_je_malloc_conf=_malloc_conf_default")
+#    ifdef JEMALLOC_PRIVATE_NAMESPACE
+#      pragma comment(linker, "/alternatename:_malloc_conf=_malloc_conf_default")
+#    endif
+#  else
+/* 64-bit x64 and ARM64: no underscore prefix */
+#    pragma comment(linker, "/alternatename:je_malloc_conf=malloc_conf_default")
+#    ifdef JEMALLOC_PRIVATE_NAMESPACE
+#      pragma comment(linker, "/alternatename:malloc_conf=malloc_conf_default")
+#    endif
+#  endif
+
+/* Same pattern for malloc_conf_2_conf_harder */
+#  ifdef _M_IX86
+#    pragma comment(linker, "/alternatename:_je_malloc_conf_2_conf_harder=_malloc_conf_2_conf_harder_default")
+#    ifdef JEMALLOC_PRIVATE_NAMESPACE
+#      pragma comment(linker, "/alternatename:_malloc_conf_2_conf_harder=_malloc_conf_2_conf_harder_default")
+#    endif
+#  else
+#    pragma comment(linker, "/alternatename:je_malloc_conf_2_conf_harder=malloc_conf_2_conf_harder_default")
+#    ifdef JEMALLOC_PRIVATE_NAMESPACE
+#      pragma comment(linker, "/alternatename:malloc_conf_2_conf_harder=malloc_conf_2_conf_harder_default")
+#    endif
+#  endif
+#endif /* _MSC_VER */
+
 const char *opt_malloc_conf_symlink = NULL;
 const char *opt_malloc_conf_env_var = NULL;
 

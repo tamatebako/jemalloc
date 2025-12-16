@@ -512,6 +512,30 @@ Based on link:https://github.com/jemalloc/jemalloc/pull/2689[upstream PR #2689]
 by @roblabla.
 
 
+=== Building on Windows
+
+==== General
+
+jemalloc supports Windows via both MSVC (Visual Studio 2015+) and MinGW
+toolchains, with comprehensive CI testing across x64, x86, and ARM64
+architectures.
+
+==== MSVC compiler compatibility
+
+The build system automatically uses MSVC-compatible header wrappers for portability:
+
+* `msvc_compat/strings.h` - Provides `ffs()`, `ffsl()`, `ffsll()` functions
+using MSVC intrinsics
+
+* `msvc_compat/windows_extra.h` - Additional Windows compatibility layer
+
+These headers are used for all Windows builds (MSVC and MinGW) to ensure
+consistent behavior.
+
+Based on link:https://github.com/jemalloc/jemalloc/pull/2420[upstream PR #2420]
+by @threeseed (harana-oss organization).
+
+
 == Cross-platform CI/CD
 
 The Tebako fork of jemalloc uses a comprehensive GitHub Actions CI/CD system

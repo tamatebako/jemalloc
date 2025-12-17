@@ -397,6 +397,72 @@ Full native support for Apple Silicon:
 * Tested on macOS 13-15
 * Zone allocator integration
 
+==== ARMv9 Speculation Barrier - Performance optimization
+
+Automatic ~30% faster spin delays on ARMv9 hardware.
+
+Contributed by @salvatoredipietro in
+https://github.com/jemalloc/jemalloc/issues/2843[GitHub issue #2843]
+
+On ARM64 Linux systems with ARMv9 processors, jemalloc automatically detects and
+uses the `SB` (Speculation Barrier) instruction instead of the older `ISB`
+(Instruction Synchronization Barrier) for improved spin delay performance.
+
+NOTE: See benchmark comparison from original PR
+link:https://github.com/jemalloc/jemalloc/pull/2843[upstream PR #2843].
+
+Detection: Runtime via `getauxval(AT_HWCAP)` - automatic and transparent, no
+configuration needed.
+
+Supported hardware:
+
+* AWS Graviton 3 and Graviton 4 (ARMv9)
+* ARM Neoverse V1, V2, N2 cores
+* Modern ARM server processors (2022+)
+
+Fallback: Automatically uses `ISB` on ARMv8 and older processors
+
+Platform: Linux ARM64 only (other platforms unaffected)
+
+Usage (optimization is automatic):
+
+[source,bash]
+----
+# Build jemalloc normally
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+cmake --install build
+
+# Link your application
+gcc myapp.c -ljemalloc -o myapp
+./myapp  # Automatically uses SB on ARMv9, ISB on ARMv8
+----
+
+To verify it's working, check your CPU capabilities:
+
+[source,bash]
+----
+# On Linux ARM64, check for SB support
+grep -o 'sb' /proc/cpuinfo | head -1
+
+# If output is 'sb', SB instruction is supported
+# If no output, system uses ISB fallback
+----
+
+Verify at runtime (requires debug build):
+
+[source,c]
+----
+#include <stdio.h>
+extern int arm_has_sb_instruction;  // Only on Linux ARM64
+
+int main() {
+    printf("SB instruction support: %s\n",
+           arm_has_sb_instruction ? "YES (using SB)" : "NO (using ISB)");
+    return 0;
+}
+----
+
 For platform-specific build instructions and ARM64 details, see
 link:doc/CMAKE_INTEGRATION.adoc#platform-specific-notes[CMAKE_INTEGRATION.adoc § Platform-Specific Notes].
 

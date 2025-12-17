@@ -62,6 +62,7 @@ set(JEMALLOC_CORE_SOURCES
     ${JEMALLOC_ROOT}/src/san_bump.c
     ${JEMALLOC_ROOT}/src/sc.c
     ${JEMALLOC_ROOT}/src/sec.c
+    ${JEMALLOC_ROOT}/src/spin_delay_arm.c
     ${JEMALLOC_ROOT}/src/stats.c
     ${JEMALLOC_ROOT}/src/sz.c
     ${JEMALLOC_ROOT}/src/tcache.c

@@ -145,6 +145,44 @@ cmake --build build
 environments. This is due to differences in OOM behavior between musl and glibc.
 These tests are automatically skipped on musl builds.
 
+==== Alpine profiling support
+
+Heap profiling works correctly on musl libc with Alpine Linux, including static
+and dynamic linking scenarios. The historical deadlock issue reported in
+link:https://github.com/jemalloc/jemalloc/issues/585[GitHub issue #585] (2017)
+has been resolved in jemalloc 5.x series.
+
+Build with profiling:
+
+[source,bash]
+----
+cmake -B build -DJEMALLOC_ENABLE_PROF=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+cmake --install build
+----
+
+Use profiling:
+
+[source,bash]
+----
+# Enable profiling at runtime
+MALLOC_CONF="prof:true,lg_prof_sample:19" ./your_app
+
+# Generate heap dump at program exit
+MALLOC_CONF="prof:true,prof_final:true" ./your_app
+----
+
+Static linking with profiling:
+
+[source,bash]
+----
+gcc -static your_app.c -ljemalloc -lpthread -no-pie -o your_app
+----
+
+NOTE: The `-no-pie` flag is required for static builds on Alpine.
+
+
+
 == Usage
 
 === Basic integration
@@ -188,6 +226,186 @@ size_t allocated;
 size_t sz = sizeof(allocated);
 mallctl("stats.allocated", &allocated, &sz, NULL, 0);
 ----
+
+== Migrating to jemalloc
+
+=== From glibc
+
+When migrating from glibc to jemalloc:
+
+. Audit code for alignment assumptions - Search for SIMD types, `alignas()`, SSE/AVX intrinsics
+. Use explicit alignment - Replace plain `malloc()` with `aligned_alloc()` or `mallocx()` where needed
+. Test thoroughly - Run with address sanitizer (`-fsanitize=address`) to catch alignment issues
+. Review language bindings - Verify FFI boundaries handle alignment correctly (Rust, Go, etc.)
+
+
+== Memory alignment guarantees
+
+=== General
+
+jemalloc's alignment guarantees differ from glibc, which can cause crashes in
+applications expecting glibc-specific behavior. This section explains the
+differences and provides solutions.
+
+Understanding alignment behavior is essential when porting from glibc to
+jemalloc, especially for:
+
+* Code migrating from glibc-based systems
+* Applications using SIMD types or overaligned structures
+* Applications using SSE/AVX instructions expecting specific alignment
+* C++ code with `alignas()` specifiers
+
+=== Alignment behavior
+
+jemalloc provides alignment based on the **size class** of the allocation:
+
+[cols="2,2,3",options="header"]
+|===
+|Allocation size
+|Minimum alignment
+|Notes
+
+|1-8 bytes
+|8 bytes
+|Sufficient for `int64_t`, `double`
+
+|9-16 bytes
+|16 bytes
+|Sufficient for most SIMD types
+
+|17-32 bytes
+|16 or 32 bytes
+|Platform-dependent
+
+|33-64 bytes
+|32 or 64 bytes
+|Platform-dependent
+
+|65+ bytes
+|Based on size class
+|Minimum 16 bytes on most platforms
+|===
+
+=== Differences from glibc
+
+WARNING: jemalloc differs from glibc's behavior in critical ways.
+
+The differences are:
+
+glibc behavior:: Always returns ≥16-byte alignment on x86_64 for ALL allocations
+jemalloc behavior:: Returns alignment based on allocation size
+
+What this means:
+
+* Code expecting 16-byte alignment for 8-byte allocations will fail with jemalloc.
+
+.Example of problematic code
+====
+[source,c]
+----
+// GCC/Clang extension with overaligned type
+struct alignas(16) SmallData {
+    uint64_t value;  // sizeof = 8 bytes
+};
+
+void* p = malloc(sizeof(struct SmallData));  // Allocates 8 bytes
+
+// With glibc:    p has 16-byte alignment ✓
+// With jemalloc: p has 8-byte alignment ✗
+
+__m128i* simd = (__m128i*)p;
+*simd = _mm_set1_epi32(42);  // May crash with jemalloc!
+----
+====
+
+=== Solutions: Explicit alignment
+
+For guaranteed alignment, use alignment-specific allocation functions:
+
+==== POSIX posix_memalign()
+
+[source,c]
+----
+void* p;
+int result = posix_memalign(&p, 16, size);
+if (result != 0) {
+    // Handle allocation failure
+}
+// p is guaranteed to be 16-byte aligned
+----
+
+==== C11 aligned_alloc()
+
+[source,c]
+----
+// Size must be a multiple of alignment
+size_t aligned_size = (size + 15) & ~15;  // Round up to multiple of 16
+void* p = aligned_alloc(16, aligned_size);
+if (p == NULL) {
+    // Handle allocation failure
+}
+// p is guaranteed to be 16-byte aligned
+----
+
+==== jemalloc-specific mallocx()
+
+[source,c]
+----
+#include <jemalloc/jemalloc.h>
+
+// Most flexible - size doesn't need to be multiple of alignment
+void* p = mallocx(size, MALLOCX_ALIGN(16));
+if (p == NULL) {
+    // Handle allocation failure
+}
+// p is guaranteed to be 16-byte aligned
+----
+
+==== C++
+
+C++17 over-aligned `operator new`:
+
+[source,cpp]
+----
+// C++17 automatically calls aligned operator new
+struct alignas(32) Data {
+    int64_t values[2];  // 16 bytes, but needs 32-byte alignment
+};
+
+// Uses ::operator new(size_t, std::align_val_t)
+// jemalloc's C++ integration handles this via mallocx()
+auto* p = new Data();
+// Correctly aligned at 32 bytes
+delete p;
+----
+
+NOTE: For C++ users, when compiling with jemalloc's
+C++ support (enabled by default), aligned `new` operators are handled correctly.
+
+
+=== Querying actual alignment
+
+To check the alignment of an existing pointer:
+
+[source,c]
+----
+#include <jemalloc/jemalloc.h>
+
+void* p = malloc(size);
+
+// Get actual allocation size (may be larger than requested)
+size_t actual_size = malloc_usable_size(p);
+
+// Alignment is based on size class of actual_size
+# For most cases: alignment = min(actual_size, 16) on x86_64
+// For larger allocations: alignment follows size class rules
+
+// To check pointer alignment at runtime:
+uintptr_t addr = (uintptr_t)p;
+size_t alignment = addr & -addr;  // Finds actual alignment
+printf("Pointer %p has %zu-byte alignment\n", p, alignment);
+----
+
 
 == Platform support
 
@@ -243,7 +461,6 @@ mallctl("stats.allocated", &allocated, &sz, NULL, 0);
 |✅ Yes
 |===
 
-*ARM64 on Windows is under active development
 
 NOTE: CMake 3.24+ required. vcpkg support requires Tebako fork overlay
 (see link:doc/CMAKE_INTEGRATION.adoc#vcpkg-integration[CMAKE_INTEGRATION.adoc § vcpkg Integration]).
@@ -465,6 +682,132 @@ int main() {
 
 For platform-specific build instructions and ARM64 details, see
 link:doc/CMAKE_INTEGRATION.adoc#platform-specific-notes[CMAKE_INTEGRATION.adoc § Platform-Specific Notes].
+
+
+==== ARM64 page size configuration
+
+===== General
+
+ARM64 systems support multiple page sizes. **jemalloc must be compiled for the
+correct page size or it will crash at runtime**.
+
+WARNING: Building jemalloc with an incorrect page size will cause immediate
+crashes. This is the #1 compatibility issue on ARM64 platforms.
+
+ARM64 kernels can be configured with different page sizes:
+
+* 4 KiB (4096 bytes) - Traditional Linux default, most compatible
+* 16 KiB (16384 bytes) - Apple Silicon Macs, Raspberry Pi 5, some ARM servers
+* 64 KiB (65536 bytes) - ARM64 servers optimized for performance (AWS Graviton, etc.)
+
+To determine your system's page size, run:
+
+[source,bash]
+----
+# On Linux/macOS/FreeBSD
+getconf PAGESIZE
+
+# Example outputs:
+# 4096   → 4K pages: use -DJEMALLOC_LG_PAGE=12  (2^12 = 4096)
+# 16384  → 16K pages: use -DJEMALLOC_LG_PAGE=14 (2^14 = 16384)
+# 65536  → 64K pages: use -DJEMALLOC_LG_PAGE=16 (2^16 = 65536)
+----
+
+.Recommended CMake configurations by platform
+[cols="2,1,3",options="header"]
+|===
+|Platform
+|Page size
+|CMake command
+
+|x86_64 (Intel/AMD)
+|4 KiB
+|`cmake -B build` (auto-detect)
+
+|Apple Silicon (M1/M2/M3)
+|16 KiB
+|`cmake -B build -DJEMALLOC_LG_PAGE=14`
+
+|Raspberry Pi 5
+|16 KiB
+|`cmake -B build -DJEMALLOC_LG_PAGE=14`
+
+|AWS Graviton 2/3/4
+|64 KiB
+|`cmake -B build -DJEMALLOC_LG_PAGE=16`
+
+|ARM64 generic Linux
+|Check with `getconf PAGESIZE`
+|Set `-DJEMALLOC_LG_PAGE=XX` accordingly
+|===
+
+WARNING: For optimal efficiency, always use the **exact page size of your
+deployment target**.
+
+[NOTE]
+====
+If things crash:
+
+. Check system page size: `getconf PAGESIZE`
+. Rebuild jemalloc with correct `-DJEMALLOC_LG_PAGE` value
+. Reinstall or update `LD_LIBRARY_PATH`
+====
+
+
+===== CMake configuration
+
+====== Automatic detection (recommended for native builds)
+
+When building on the target system, CMake automatically detects the page size:
+
+[source,bash]
+----
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+cmake --install build
+----
+
+NOTE: Automatic detection only works when building ON the target architecture.
+For cross-compilation, use manual configuration below.
+
+====== Manual configuration (cross-compilation or explicit control)
+
+When cross-compiling or needing explicit control, set the page size using
+`-DJEMALLOC_LG_PAGE=XX`, where `XX` is the log2 of the page size.
+
+[source,bash]
+----
+# For 4 KiB pages (most x86_64, some ARM64)
+cmake -B build -DJEMALLOC_LG_PAGE=12
+
+# For 16 KiB pages (Apple Silicon, Raspberry Pi 5)
+cmake -B build -DJEMALLOC_LG_PAGE=14
+
+# For 64 KiB pages (ARM64 servers)
+cmake -B build -DJEMALLOC_LG_PAGE=16
+----
+
+.Example: Building for Raspberry Pi 5 cross-compilation
+[example]
+====
+[source,bash]
+----
+# On Ubuntu x86_64, cross-compiling for Raspberry Pi 5
+sudo apt-get install gcc-aarch64-linux-gnu
+
+# MUST specify 16K pages (Pi 5 uses 16K pages)
+cmake -B build \
+  -DCMAKE_SYSTEM_NAME=Linux \
+  -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+  -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+  -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+  -DJEMALLOC_LG_PAGE=14  # Critical: Pi 5 = 16K pages
+
+cmake --build build
+----
+====
+
+
 
 
 === Windows profiling support

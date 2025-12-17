@@ -299,7 +299,7 @@ jobs:
   alpine-musl:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    container: alpine:3.20
+    container: alpine:3.23
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -317,6 +317,18 @@ jobs:
             os: ubuntu-24.04-arm
             cc: gcc
             cxx: g++
+
+          # Alpine profiling validation (Issue #585 - verify historical deadlock resolved)
+          - name: Alpine Linux x64 gcc prof
+            os: ubuntu-24.04
+            cc: gcc
+            cxx: g++
+            enable_prof: true
+          - name: Alpine Linux ARM64 gcc prof
+            os: ubuntu-24.04-arm
+            cc: gcc
+            cxx: g++
+            enable_prof: true
 
     steps:
       - name: Checkout (Alpine x64)
@@ -352,6 +364,11 @@ jobs:
           echo "${{ matrix.flags }}" | grep -q -- "--disable-stats" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_STATS=OFF"
           echo "${{ matrix.flags }}" | grep -q -- "--disable-libdl" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_LIBDL=OFF"
           echo "${{ matrix.flags }}" | grep -q -- "--enable-opt-safety-checks" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_OPT_SAFETY_CHECKS=ON"
+
+          # Enable profiling if enable_prof is set in matrix
+          if [ "${{ matrix.enable_prof }}" = "true" ]; then
+            CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_ENABLE_PROF=ON"
+          fi
 
           # Page size
           if echo "${{ matrix.flags }}" | grep -q -- "--with-lg-page=16"; then
@@ -586,6 +603,11 @@ jobs:
           echo "${{ matrix.flags }}" | grep -q -- "--disable-libdl" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_LIBDL=OFF"
           echo "${{ matrix.flags }}" | grep -q -- "--enable-opt-safety-checks" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_OPT_SAFETY_CHECKS=ON"
 
+          # Enable profiling if enable_prof is set in matrix
+          if [ "${{ matrix.enable_prof }}" = "true" ]; then
+            CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_ENABLE_PROF=ON"
+          fi
+
           # Page size
           if echo "${{ matrix.flags }}" | grep -q -- "--with-lg-page=16"; then
             CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_LG_PAGE=16"
@@ -673,6 +695,11 @@ jobs:
           echo "${{ matrix.flags }}" | grep -q -- "--disable-stats" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_STATS=OFF"
           echo "${{ matrix.flags }}" | grep -q -- "--disable-libdl" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_LIBDL=OFF"
           echo "${{ matrix.flags }}" | grep -q -- "--enable-opt-safety-checks" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_OPT_SAFETY_CHECKS=ON"
+
+          # Enable profiling if enable_prof is set in matrix
+          if [ "${{ matrix.enable_prof }}" = "true" ]; then
+            CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_ENABLE_PROF=ON"
+          fi
 
           # Page size
           if echo "${{ matrix.flags }}" | grep -q -- "--with-lg-page=16"; then
@@ -857,7 +884,7 @@ jobs:
   alpine-configure-flags:
     name: Alpine flags - ${{ matrix.compiler }} ${{ matrix.flags }}
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
-    container: alpine:3.20
+    container: alpine:3.23
     needs: [alpine-musl, test-cmake-builds, test-vcpkg-integration]
     timeout-minutes: 60
     strategy:
@@ -921,6 +948,11 @@ jobs:
           echo "${{ matrix.flags }}" | grep -q -- "--disable-stats" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_STATS=OFF"
           echo "${{ matrix.flags }}" | grep -q -- "--disable-libdl" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_LIBDL=OFF"
           echo "${{ matrix.flags }}" | grep -q -- "--enable-opt-safety-checks" && CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_OPT_SAFETY_CHECKS=ON"
+
+          # Enable profiling if enable_prof is set in matrix
+          if [ "${{ matrix.enable_prof }}" = "true" ]; then
+            CMAKE_FLAGS="$CMAKE_FLAGS -DJEMALLOC_ENABLE_PROF=ON"
+          fi
 
           # Page size
           if echo "${{ matrix.flags }}" | grep -q -- "--with-lg-page=16"; then

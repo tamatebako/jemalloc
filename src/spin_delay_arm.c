@@ -123,13 +123,6 @@ static int detect_sb_windows(void) {
  *
  * Detects SB support using platform-specific method.
  */
-#if defined(__GNUC__) || defined(__clang__)
-__attribute__((constructor))
-#elif defined(_MSC_VER)
-#pragma section(".CRT$XCU", read)
-__declspec(allocate(".CRT$XCU"))
-static void (*_detect_arm_sb_init)(void) = detect_arm_sb_support;
-#endif
 static void detect_arm_sb_support(void) {
 #if defined(__linux__)
 	arm_has_sb_instruction = detect_sb_linux();
@@ -142,5 +135,21 @@ static void detect_arm_sb_support(void) {
 	arm_has_sb_instruction = 0;
 #endif
 }
+
+/* Platform-specific constructor registration */
+#if defined(__GNUC__) || defined(__clang__)
+/* GCC/Clang: Use constructor attribute */
+__attribute__((constructor))
+static void detect_arm_sb_init(void) {
+	detect_arm_sb_support();
+}
+#elif defined(_MSC_VER)
+/* MSVC: Use .CRT$XCU section for static initialization */
+#pragma section(".CRT$XCU", read)
+static void detect_arm_sb_init(void) {
+	detect_arm_sb_support();
+}
+__declspec(allocate(".CRT$XCU")) void (*_arm_sb_init_ptr)(void) = detect_arm_sb_init;
+#endif
 
 #endif /* ARM64 && (GCC || Clang || MSVC) */

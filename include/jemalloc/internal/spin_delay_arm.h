@@ -3,6 +3,11 @@
 
 #include "jemalloc/internal/jemalloc_preamble.h"
 
+/* MSVC ARM64 needs intrin.h for intrinsics */
+#if defined(_MSC_VER) && (defined(_M_ARM64) || defined(_M_ARM64EC))
+#include <intrin.h>
+#endif
+
 /*
  * ARMv9 Speculation Barrier (SB) instruction support.
  *
@@ -39,12 +44,12 @@ spin_delay_arm(void) {
 		__asm__ __volatile__("isb" ::: "memory");
 	}
 #elif defined(_MSC_VER)
-	/* MSVC on ARM64 uses intrinsics instead of inline assembly */
+	/* MSVC on ARM64 uses __emit() to insert raw instruction opcodes */
 	if (arm_has_sb_instruction == 1) {
-		/* ARMv9 Speculation Barrier */
+		/* ARMv9 Speculation Barrier (SB) - opcode 0xd50330ff */
 		__emit(0xd50330ff);
 	} else {
-		/* ARMv8 Instruction Synchronization Barrier */
+		/* ARMv8 Instruction Synchronization Barrier (ISB) - use intrinsic */
 		__isb(_ARM64_BARRIER_SY);
 	}
 #endif

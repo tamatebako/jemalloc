@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bump-version.sh - Bump jemalloc version and update necessary files
+# bump-version.sh - Bump jemalloc version using git tags as source of truth
 # Usage: ./bump-version.sh [major|minor|patch|X.Y.Z]
 
 set -euo pipefail
@@ -15,8 +15,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Files to update
-VERSION_FILE="$REPO_ROOT/VERSION"
 CHANGELOG_FILE="$REPO_ROOT/ChangeLog"
+VCPKG_JSON="$REPO_ROOT/ports/jemalloc/vcpkg.json"
 
 # Print functions
 print_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
@@ -31,15 +31,19 @@ fi
 
 BUMP_TYPE="$1"
 
-# Read current version from VERSION file
-if [ ! -f "$VERSION_FILE" ]; then
-    print_error "VERSION file not found at $VERSION_FILE"
-    exit 1
-fi
+# Read current version from git tags
+CURRENT_VERSION=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "")
 
-CURRENT_VERSION_RAW=$(cat "$VERSION_FILE")
-# Extract X.Y.Z from format "X.Y.Z-0-gHASH"
-CURRENT_VERSION=$(echo "$CURRENT_VERSION_RAW" | cut -d'-' -f1)
+if [ -z "$CURRENT_VERSION" ]; then
+    # Fallback to vcpkg.json if no tags
+    if [ -f "$VCPKG_JSON" ]; then
+        CURRENT_VERSION=$(grep '"version-string"' "$VCPKG_JSON" | cut -d'"' -f4)
+        print_warn "No git tags found, using vcpkg.json version: $CURRENT_VERSION"
+    else
+        print_error "No git tags found and vcpkg.json not found"
+        exit 1
+    fi
+fi
 
 print_info "Current version: $CURRENT_VERSION"
 
@@ -91,10 +95,15 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     exit 0
 fi
 
-# Update VERSION file
-print_info "Updating VERSION file..."
-echo "${NEW_VERSION}-0-g0000000000000000000000000000000000000000" > "$VERSION_FILE"
-print_info "✓ VERSION file updated"
+# Update vcpkg.json
+if [ -f "$VCPKG_JSON" ]; then
+    print_info "Updating vcpkg.json..."
+    sed -i.bak "s/\"version-string\": \".*\"/\"version-string\": \"${NEW_VERSION}\"/" "$VCPKG_JSON"
+    rm -f "$VCPKG_JSON.bak"
+    print_info "✓ vcpkg.json updated"
+else
+    print_warn "vcpkg.json not found, skipping"
+fi
 
 # Update ChangeLog
 print_info "Updating ChangeLog..."
@@ -135,13 +144,15 @@ print_info "Old version: $CURRENT_VERSION"
 print_info "New version: $NEW_VERSION"
 print_info ""
 print_info "Files updated:"
-print_info "  - VERSION"
+print_info "  - ports/jemalloc/vcpkg.json"
 print_info "  - ChangeLog"
 print_info ""
 print_warn "Next steps:"
 print_warn "  1. Review and edit the ChangeLog entry"
-print_warn "  2. Commit changes: git add VERSION ChangeLog"
+print_warn "  2. Commit changes: git add ports/jemalloc/vcpkg.json ChangeLog"
 print_warn "  3. Create commit: git commit -m 'chore: bump version to ${NEW_VERSION}'"
+print_warn "  4. Create tag: git tag -a v${NEW_VERSION} -m 'Release v${NEW_VERSION}'"
+print_warn "  5. Push: git push && git push --tags"
 print_info "═══════════════════════════════════════════════════════"
 
 exit 0

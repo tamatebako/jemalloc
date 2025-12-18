@@ -152,6 +152,9 @@ and dynamic linking scenarios. The historical deadlock issue reported in
 link:https://github.com/jemalloc/jemalloc/issues/585[GitHub issue #585] (2017)
 has been resolved in jemalloc 5.x series.
 
+For comprehensive profiling documentation including Alpine-specific setup, see
+link:doc/profiling.adoc#alpine-linux-musl-libc[Profiling Guide § Alpine Linux].
+
 Build with profiling:
 
 [source,bash]
@@ -609,37 +612,50 @@ Automatic fix for ARM64 outline atomics linking error:
 
 Full native support for Apple Silicon:
 
-* M1/M2/M3 processor optimization
+* M1/M2/M3/M4 processor optimization
 * Universal binary support (x86_64 + ARM64)
 * Tested on macOS 13-15
 * Zone allocator integration
 
-==== ARMv9 Speculation Barrier - Performance optimization
+==== ARM64 Speculation Barrier - Performance optimization
 
-Automatic ~30% faster spin delays on ARMv9 hardware.
+On ARM64 systems with ARMv8.5-A or newer processors (ARMv9), jemalloc
+automatically detects and uses the `SB` (Speculation Barrier) instruction
+instead of the older `ISB` (Instruction Synchronization Barrier) for improved
+spin delay performance.
 
-Contributed by @salvatoredipietro in
-https://github.com/jemalloc/jemalloc/issues/2843[GitHub issue #2843]
+The ARM SB implementation on Linux was contributed by
+@salvatoredipietro in
+https://github.com/jemalloc/jemalloc/issues/2843[GitHub issue #2843].
+(Thank you!)
 
-On ARM64 Linux systems with ARMv9 processors, jemalloc automatically detects and
-uses the `SB` (Speculation Barrier) instruction instead of the older `ISB`
-(Instruction Synchronization Barrier) for improved spin delay performance.
+**Performance improvement**: depends on the version of instruction set and CPU,
+it is reported that AWS Graviton 3 shows approximately
+~30% (https://github.com/jemalloc/jemalloc/issues/2843[GitHub issue #2843]), and
+Apple Silicon M3 shows approximately ~11.3% improvement in benchmarks.
 
-NOTE: See benchmark comparison from original PR
-link:https://github.com/jemalloc/jemalloc/pull/2843[upstream PR #2843].
+For detailed benchmark comparison and methodology, see
+link:doc/profiling.adoc#armv9-speculation-barrier-optimization[Profiling Guide § ARMv8.5+ speculation barrier optimization].
 
-Detection: Runtime via `getauxval(AT_HWCAP)` - automatic and transparent, no
-configuration needed.
+**Cross-platform support**:
+
+* **Linux ARM64**: Runtime detection via `getauxval(AT_HWCAP)` and `HWCAP_SB` flag
+* **macOS ARM64**: Runtime detection via `sysctlbyname("hw.optional.arm.FEAT_SB")`
+* **Windows ARM64**: Runtime detection via registry (`ID_AA64ISAR1_EL1` - `CP 4031`)
+
+**Automatic and transparent** - no configuration needed on any platform.
 
 Supported hardware:
 
-* AWS Graviton 3 and Graviton 4 (ARMv9)
-* ARM Neoverse V1, V2, N2 cores
-* Modern ARM server processors (2022+)
+* **Linux**: AWS Graviton 3/4 (ARMv9 Neoverse V1/V2), Neoverse N2, future (2022+)
+* **macOS**: All Apple Silicon - M1, M2, M3, M4 and future variants (ARMv8.5-A+)
+* **Windows**: Snapdragon X Elite/Plus (ARMv8.7-A+) and future variants
 
-Fallback: Automatically uses `ISB` on ARMv8 and older processors
+Fallback: Automatically uses `ISB` on ARMv8.0-A through ARMv8.4-A processors
 
-Platform: Linux ARM64 only (other platforms unaffected)
+NOTE: ARMv8.5-A introduced the SB instruction in 2019. Performance improvement
+varies by microarchitecture - server-class ARM cores (Neoverse) typically show
+larger gains than client cores (Apple Silicon).
 
 Usage (optimization is automatic):
 
@@ -652,37 +668,57 @@ cmake --install build
 
 # Link your application
 gcc myapp.c -ljemalloc -o myapp
-./myapp  # Automatically uses SB on ARMv9, ISB on ARMv8
+./myapp  # Automatically uses SB on ARMv8.5-A+, ISB on older
 ----
 
-To verify it's working, check your CPU capabilities:
+To verify it's working:
+
+**Linux**:
+[source,bash]
+----
+# Check for SB support in CPU features
+grep -o 'sb' /proc/cpuinfo | head -1
+----
+
+**macOS**:
+[source,bash]
+----
+# Check for SB support via sysctl
+sysctl -n hw.optional.arm.FEAT_SB  # Returns 1 if supported
+----
+
+**Windows**:
+[source,powershell]
+----
+# Check registry for ARMv8.5-A support (SB included)
+# ID_AA64ISAR1_EL1 bits 11:8 should be nonzero
+----
+
+Benchmark on your system:
 
 [source,bash]
 ----
-# On Linux ARM64, check for SB support
-grep -o 'sb' /proc/cpuinfo | head -1
-
-# If output is 'sb', SB instruction is supported
-# If no output, system uses ISB fallback
+# Compile benchmark (included in source)
+clang -O2 -o benchmark_sb benchmark_sb_macos.c
+./benchmark_sb
 ----
 
-Verify at runtime (requires debug build):
+Verify at runtime (cross-platform):
 
 [source,c]
 ----
 #include <stdio.h>
-extern int arm_has_sb_instruction;  // Only on Linux ARM64
+extern int arm_has_sb_instruction;  // Works on all ARM64 platforms
 
 int main() {
     printf("SB instruction support: %s\n",
-           arm_has_sb_instruction ? "YES (using SB)" : "NO (using ISB)");
+           arm_has_sb_instruction ? "YES (ARMv8.5-A+)" : "NO (ARMv8.0-8.4)");
     return 0;
 }
 ----
 
 For platform-specific build instructions and ARM64 details, see
 link:doc/CMAKE_INTEGRATION.adoc#platform-specific-notes[CMAKE_INTEGRATION.adoc § Platform-Specific Notes].
-
 
 ==== ARM64 page size configuration
 
@@ -823,42 +859,9 @@ Features:
 * Native API: Uses Windows `CaptureStackBackTrace()` for fast backtrace collection
 * CMake integrated: Automatically detected during build configuration
 
-Build with profiling enabled using CMake:
-
-[source,powershell]
-----
-# Enable profiling during build
-cmake -B build -DJEMALLOC_ENABLE_PROF=ON -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
-----
-
-Using heap profiling:
-
-[source,powershell]
-----
-# Enable profiling with automatic dumps
-set MALLOC_CONF=prof:true,lg_prof_sample:15,prof_final:true
-
-# Run your application
-your_program.exe
-
-# Heap dumps will be generated as jeprof.*.heap files
-----
-
-Common profiling options:
-
-`prof:true`:: Enable heap profiling
-`lg_prof_sample:N`:: Sample every 2^N bytes allocated (15 = 32KB)
-`prof_final:true`:: Dump heap profile on program exit
-`prof_prefix:path`:: Set prefix for heap dump filenames
-
-Limitations:
-
-* **Memory mapping info** - Module information is captured but symbol resolution requires PDB files
-* Windows profiling backend is based on link:https://github.com/jemalloc/jemalloc/pull/2694[upstream PR #2694] by @roblabla
-
-For detailed profiling usage and analysis tools, see
-link:doc_internal/PROFILING_INTERNALS.md[PROFILING_INTERNALS.md].
+For comprehensive profiling documentation including build instructions, usage
+examples, configuration options, and platform-specific considerations, see
+link:doc/profiling.adoc[profiling.adoc].
 
 
 === Windows malloc_conf override support
@@ -973,6 +976,7 @@ Travis CI, AppVeyor, and Cirrus CI.
 
 == Documentation
 
+* link:doc/profiling.adoc[Profiling Guide] - Comprehensive heap profiling across all platforms
 * link:doc/CMAKE_INTEGRATION.adoc[CMAKE_INTEGRATION.adoc] - Comprehensive CMake and vcpkg integration guide
 * link:INSTALL.adoc[INSTALL.adoc] - Detailed build and installation instructions
 * link:doc_internal/PROFILING_INTERNALS.md[Profiling Internals] - Heap profiling implementation details

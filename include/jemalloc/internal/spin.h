@@ -3,9 +3,9 @@
 
 #include "jemalloc/internal/jemalloc_preamble.h"
 
-/* Include ARM-specific optimizations for Linux ARM64 */
-#if defined(__linux__) && (defined(__aarch64__) || defined(__arm64__)) && \
-    (defined(__GNUC__) || defined(__clang__))
+/* Include ARM-specific optimizations for all ARM64 platforms */
+#if (defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)) && \
+    (defined(__GNUC__) || defined(__clang__) || defined(_MSC_VER))
 #include "jemalloc/internal/spin_delay_arm.h"
 #endif
 
@@ -18,9 +18,10 @@ typedef struct {
 
 static inline void
 spin_cpu_spinwait(void) {
-#if defined(__linux__) && (defined(__aarch64__) || defined(__arm64__)) && \
-    (defined(__GNUC__) || defined(__clang__))
+#if (defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)) && \
+    (defined(__GNUC__) || defined(__clang__) || defined(_MSC_VER))
 	/* Use ARMv9 SB instruction on supported hardware, ISB fallback */
+	/* Works on: Linux, macOS, Windows (all ARM64) */
 	spin_delay_arm();
 #elif HAVE_CPU_SPINWAIT
 	CPU_SPINWAIT;

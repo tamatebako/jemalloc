@@ -1,90 +1,216 @@
 name: Release
 
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Release version (e.g., 5.5.0)'
+      next_version:
+        description: |
+          Next release version. Possible values: x.y.z, major, minor, patch, or skip.
+          - major: Bump major version (5.5.0 → 6.0.0)
+          - minor: Bump minor version (5.5.0 → 5.6.0)
+          - patch: Bump patch version (5.5.0 → 5.5.1)
+          - x.y.z: Specific version (e.g., 6.2.1)
+          - skip: Skip version bump, create release from current version
         required: true
-        type: string
-      prerelease:
-        description: 'Mark as pre-release'
-        required: false
+        default: 'minor'
+      create_github_release:
+        description: 'Create GitHub release after tagging?'
+        required: true
         type: boolean
-        default: false
-
-permissions:
-  contents: write
-  packages: write
-  artifact-metadata: write
-  attestations: write
+        default: true
 
 jobs:
-  create-release:
-    name: Create Release
+  validate-and-bump:
+    name: Validate and bump version
     runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+      release_branch: ${{ steps.create_branch.outputs.branch }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Validate version
+      - name: Validate version input
+        id: validate
         run: |
-          VERSION="${{ inputs.version }}"
-          if ! echo "$VERSION" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9]+)?$'; then
-            echo "Error: Invalid version format: $VERSION"
-            echo "Expected format: X.Y.Z or X.Y.Z-suffix (e.g., 5.5.0 or 5.5.0-tebako)"
-            exit 1
-          fi
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          VERSION_INPUT="${{ github.event.inputs.next_version }}"
 
-      - name: Check if tag exists
-        run: |
-          if git rev-parse "${{ env.VERSION }}" >/dev/null 2>&1; then
-            echo "Error: Tag ${{ env.VERSION }} already exists"
+          if [[ "$VERSION_INPUT" == "skip" ]]; then
+            echo "Skipping version bump, using current version"
+            echo "skip_bump=true" >> $GITHUB_OUTPUT
+          elif [[ "$VERSION_INPUT" =~ ^(major|minor|patch)$ ]]; then
+            echo "Valid bump type: $VERSION_INPUT"
+            echo "skip_bump=false" >> $GITHUB_OUTPUT
+          elif [[ "$VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Valid specific version: $VERSION_INPUT"
+            echo "skip_bump=false" >> $GITHUB_OUTPUT
+          else
+            echo "::error::Invalid version input: $VERSION_INPUT"
             exit 1
           fi
+
+      - name: Bump version
+        if: steps.validate.outputs.skip_bump == 'false'
+        run: |
+          echo "Running version bump script..."
+          echo "y" | .github/scripts/bump-version.sh "${{ github.event.inputs.next_version }}"
+
+      - name: Get new version
+        id: get_version
+        run: |
+          VERSION=$(cat VERSION | cut -d'-' -f1)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Determined version: $VERSION"
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create release branch
+        id: create_branch
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          BRANCH="release/v${VERSION}"
+
+          git checkout -b "$BRANCH"
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          echo "Created branch: $BRANCH"
+
+      - name: Commit version bump
+        if: steps.validate.outputs.skip_bump == 'false'
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+
+          git add VERSION ChangeLog
+          git commit -m "chore: bump version to ${VERSION}" \
+            -m "This commit updates VERSION and ChangeLog for the ${VERSION} release." \
+            -m "The ChangeLog entry contains a template that should be filled in during the PR review process before merging."
+
+      - name: Push release branch
+        run: |
+          BRANCH="${{ steps.create_branch.outputs.branch }}"
+          git push origin "$BRANCH"
+
+  create-pr:
+    name: Create release PR
+    needs: validate-and-bump
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ needs.validate-and-bump.outputs.release_branch }}
+          base: main
+          title: "Release v${{ needs.validate-and-bump.outputs.version }}"
+          body: |
+            ## Release v${{ needs.validate-and-bump.outputs.version }}
+
+            This PR prepares the release for version ${{ needs.validate-and-bump.outputs.version }}.
+
+            ### Changes
+            - Updated VERSION file to ${{ needs.validate-and-bump.outputs.version }}
+            - Added ChangeLog entry template
+
+            ### Before Merging
+            - [ ] Review and complete the ChangeLog entry
+            - [ ] Verify all CI tests passed (will run automatically on this PR)
+            - [ ] Ensure version number is correct
+            - [ ] Update release notes if needed
+
+            ### After Merging
+            The following will happen automatically:
+            - Git tag `v${{ needs.validate-and-bump.outputs.version }}` will be created
+            ${{ github.event.inputs.create_github_release == 'true' && '- GitHub release will be published' || '- No GitHub release will be created (manual step required)' }}
+
+            ---
+
+            **Version bump type**: `${{ github.event.inputs.next_version }}`
+            **GitHub release**: `${{ github.event.inputs.create_github_release }}`
+          labels: |
+            release
+            automated
+
+  tag-and-release:
+    name: Tag and create GitHub release
+    runs-on: ubuntu-24.04
+    if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'release')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from VERSION file
+        id: get_version
+        run: |
+          VERSION=$(cat VERSION | cut -d'-' -f1)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
 
       - name: Extract release notes from ChangeLog
+        id: extract_notes
         run: |
-          awk '/^\* [0-9]+\.[0-9]+\.[0-9]+/{if(seen++){exit}else{print}}  seen' ChangeLog > release-notes.txt
-          echo "Release notes extracted:"
-          cat release-notes.txt
+          VERSION="${{ steps.get_version.outputs.version }}"
+          NOTES_FILE=$(mktemp)
 
-      - name: Create source tarball
+          awk -v ver="$VERSION" '
+            /^\* [0-9]+\.[0-9]+\.[0-9]+/ {
+              if (in_section) exit;
+              if ($0 ~ ver) {
+                in_section=1;
+                next;
+              }
+            }
+            in_section { print }
+          ' ChangeLog > "$NOTES_FILE"
+
+          echo "notes_file=$NOTES_FILE" >> $GITHUB_OUTPUT
+
+      - name: Configure Git
         run: |
-          TARBALL="jemalloc-${{ env.VERSION }}.tar.gz"
-          git archive --format=tar.gz --prefix=jemalloc-${{ env.VERSION }}/ -o "$TARBALL" HEAD
-          sha256sum "$TARBALL" > "$TARBALL.sha256"
-          echo "Created tarball: $TARBALL"
-          ls -lh "$TARBALL"*
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create Git tag
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          git tag -a "v${VERSION}" -m "Release v${VERSION}"
+          git push origin "v${VERSION}"
+          echo "Created and pushed tag: v${VERSION}"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        if: github.event.inputs.create_github_release == 'true'
+        uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ env.VERSION }}
-          name: jemalloc ${{ env.VERSION }}
-          body_path: release-notes.txt
+          tag_name: v${{ steps.get_version.outputs.version }}
+          name: jemalloc v${{ steps.get_version.outputs.version }}
+          body_path: ${{ steps.extract_notes.outputs.notes_file }}
           draft: false
-          prerelease: ${{ inputs.prerelease }}
-          files: |
-            jemalloc-${{ env.VERSION }}.tar.gz
-            jemalloc-${{ env.VERSION }}.tar.gz.sha256
+          prerelease: false
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Summary
+      - name: Release summary
         run: |
-          echo "### Release Created Successfully! 🎉" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Version**: ${{ env.VERSION }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Tag**: \`${{ env.VERSION }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Prerelease**: ${{ inputs.prerelease }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Artifacts**:" >> $GITHUB_STEP_SUMMARY
-          echo "- jemalloc-${{ env.VERSION }}.tar.gz" >> $GITHUB_STEP_SUMMARY
-          echo "- jemalloc-${{ env.VERSION }}.tar.gz.sha256" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Release URL**: https://github.com/${{ github.repository }}/releases/tag/${{ env.VERSION }}" >> $GITHUB_STEP_SUMMARY
+          VERSION="${{ steps.get_version.outputs.version }}"
+          echo "::notice::Successfully created release v${VERSION}"
+          echo "::notice::Git tag: v${VERSION}"
+          if [[ "${{ github.event.inputs.create_github_release }}" == "true" ]]; then
+            echo "::notice::GitHub release: https://github.com/${{ github.repository }}/releases/tag/v${VERSION}"
+          fi

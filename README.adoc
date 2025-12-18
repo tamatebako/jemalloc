@@ -977,10 +977,10 @@ Travis CI, AppVeyor, and Cirrus CI.
 == Documentation
 
 * link:doc/profiling.adoc[Profiling Guide] - Comprehensive heap profiling across all platforms
+* link:doc_internal/PROFILING_INTERNALS.md[PROFILING_INTERNALS.md] - In-depth profiling implementation details
 * link:doc/CMAKE_INTEGRATION.adoc[CMAKE_INTEGRATION.adoc] - Comprehensive CMake and vcpkg integration guide
-* link:INSTALL.adoc[INSTALL.adoc] - Detailed build and installation instructions
-* link:doc_internal/PROFILING_INTERNALS.md[Profiling Internals] - Heap profiling implementation details
-* link:ChangeLog[ChangeLog] - Release history and changes
+* link:RELEASING.adoc[RELEASING.adoc] - Complete release process guide
+* link:INSTALL.adoc[INSTALL.adoc] - Building and installation instructions
 
 == Contributing
 

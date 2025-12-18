@@ -1,0 +1,745 @@
+= jemalloc heap profiling guide
+:toc: left
+:toclevels: 3
+
+== Overview
+
+jemalloc provides comprehensive heap profiling capabilities to track memory
+allocation patterns, identify leaks, and optimize memory usage. This guide
+covers profiling setup, usage, and platform-specific considerations across
+Linux, Windows, and macOS.
+
+== Platform support
+
+[cols="2,2,2,3",options="header"]
+|===
+|Platform
+|Architectures
+|Backend
+|Notes
+
+|Linux
+|x64, ARM64, x86
+|libunwind (preferred), libgcc
+|Full support with symbol resolution
+
+|Windows
+|x64, x86, ARM64
+|CaptureStackBackTrace
+|Full support (incl. MSVC, MinGW)
+
+|macOS
+|x64, ARM64
+|libunwind
+|Full support (incl. Intel and Apple Silicon)
+
+|FreeBSD
+|x64
+|libunwind
+|Full support
+
+|Alpine/musl
+|x64, ARM64
+|libunwind
+|Full support
+|===
+
+== Building with profiling support
+
+=== Linux
+
+==== Using libunwind (Recommended)
+
+[source,bash]
+----
+# Install libunwind development package
+sudo apt-get install libunwind-dev  # Debian/Ubuntu
+sudo dnf install libunwind-devel    # Fedora/RHEL
+sudo pacman -S libunwind            # Arch
+
+# Build with CMake
+cmake -B build -DJEMALLOC_ENABLE_PROF=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+cmake --install build
+----
+
+==== Using libgcc (Fallback)
+
+If libunwind is unavailable:
+
+[source,bash]
+----
+cmake -B build -DJEMALLOC_ENABLE_PROF=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+----
+
+NOTE: libunwind provides better backtrace quality than libgcc fallback.
+
+=== Windows
+
+==== General
+
+Windows profiling uses the native `CaptureStackBackTrace()` API, available on
+all supported Windows versions and architectures.
+
+==== MSVC build
+
+[source,powershell]
+----
+# No additional dependencies needed
+cmake -B build -DJEMALLOC_ENABLE_PROF=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+cmake --install build
+----
+
+==== MinGW build
+
+[source,bash]
+----
+# Via MSYS2 MINGW64/MINGW32
+cmake -B build -DJEMALLOC_ENABLE_PROF=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+----
+
+=== macOS
+
+[source,bash]
+----
+# libunwind is provided by the system
+cmake -B build -DJEMALLOC_ENABLE_PROF=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+cmake --install build
+----
+
+=== Alpine Linux (musl libc)
+
+[source,bash]
+----
+# Install dependencies
+apk add cmake make gcc musl-dev linux-headers libunwind-dev
+
+# Build
+cmake -B build -DJEMALLOC_ENABLE_PROF=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+----
+
+**Static linking with profiling:**
+
+[source,bash]
+----
+gcc -static your_app.c -ljemalloc -lpthread -no-pie -o your_app
+----
+
+NOTE: The `-no-pie` flag is required for static builds on Alpine.
+
+== Using heap profiling
+
+=== Basic usage
+
+==== Enable profiling at runtime
+
+[source,bash]
+----
+# Linux/macOS/FreeBSD
+export MALLOC_CONF="prof:true,lg_prof_sample:19"
+./your_application
+
+# Windows (PowerShell)
+$env:MALLOC_CONF="prof:true,lg_prof_sample:19"
+.\your_application.exe
+
+# Windows (CMD)
+set MALLOC_CONF=prof:true,lg_prof_sample:19
+your_application.exe
+----
+
+==== Generate heap dump on exit
+
+[source,bash]
+----
+MALLOC_CONF="prof:true,prof_final:true" ./your_application
+----
+
+This creates a file like `jeprof.<pid>.<seq>.m<time>.heap`.
+
+=== Configuration options
+
+==== Core profiling options
+
+`prof:true`:: Enable heap profiling (default: false)
+`lg_prof_sample:N`:: Sample every 2^N bytes allocated (default: 19, i.e., 512KB)
+`prof_final:true`:: Dump heap profile on program exit (default: false)
+`prof_prefix:path`:: Set prefix for heap dump filenames (default: "jeprof")
+`prof_active:true`:: Start profiling immediately (default: true if prof:true)
+
+==== Advanced options
+
+`prof_gdump:true`:: Trigger heap dump on every garbage collection
+`prof_leak:true`:: Dump final heap profile even if all allocations freed
+`prof_accum:true`:: Accumulate sampled allocations across dumps
+`prof_thread_active_init:true`:: Activate profiling for new threads by default
+
+==== Sampling rate selection
+
+The sampling rate controls profiling overhead vs. accuracy:
+
+[cols="2,2,3,2",options="header"]
+|===
+|lg_prof_sample
+|Sample rate
+|Bytes per sample
+|Use case
+
+|10
+|Frequent
+|1 KB
+|Development/debugging
+
+|15
+|Moderate
+|32 KB
+|General profiling
+
+|19
+|Light (default)
+|512 KB
+|Production monitoring
+
+|22
+|Minimal
+|4 MB
+|Low-overhead production
+|===
+
+Lower values = more samples = higher overhead but better accuracy.
+
+=== Runtime Control via mallctl
+
+==== Programmatic profiling control
+
+[source,c]
+----
+#include <jemalloc/jemalloc.h>
+
+// Enable profiling
+bool prof_active = true;
+mallctl("prof.active", NULL, NULL, &prof_active, sizeof(prof_active));
+
+// Dump current heap profile
+const char *filename = "/tmp/my_heap.prof";
+mallctl("prof.dump", NULL, NULL, &filename, sizeof(filename));
+
+// Reset profiling statistics
+mallctl("prof.reset", NULL, NULL, NULL, 0);
+----
+
+==== Check profiling status
+
+[source,c]
+----
+bool prof_enabled;
+size_t sz = sizeof(prof_enabled);
+mallctl("opt.prof", &prof_enabled, &sz, NULL, 0);
+
+if (prof_enabled) {
+    printf("Profiling is enabled\n");
+}
+----
+
+== Analyzing heap dumps
+
+=== Using jeprof (Recommended)
+
+jeprof is the standard tool for analyzing jemalloc heap dumps:
+
+[source,bash]
+----
+# Text report
+jeprof --text ./your_application jeprof.12345.0.m0.heap
+
+# Generate PDF call graph
+jeprof --pdf ./your_application jeprof.12345.0.m0.heap > heap.pdf
+
+# Interactive web interface
+jeprof --web ./your_application jeprof.12345.0.m0.heap
+----
+
+==== Common jeprof options
+
+`--text`:: Text report with allocation statistics
+`--pdf`:: Generate PDF call graph (requires Graphviz)
+`--svg`:: Generate SVG call graph
+`--web`:: Launch interactive web viewer
+`--alloc_space`:: Show total bytes allocated (default)
+`--alloc_objects`:: Show total object count
+`--inuse_space`:: Show currently allocated bytes
+`--inuse_objects`:: Show currently allocated object count
+
+=== Platform-specific symbol resolution
+
+==== Linux
+
+Symbols resolved automatically from:
+
+* Application binary
+* Shared libraries in `/proc/<pid>/maps`
+* Debug symbols in standard locations
+
+[source,bash]
+----
+# Install debug symbols (Debian/Ubuntu)
+sudo apt-get install libc6-dbg
+
+# Analyze with symbols
+jeprof --text ./app heap.prof
+----
+
+==== Windows
+
+Symbol resolution requires PDB (Program Database) files:
+
+[source,powershell]
+----
+# Ensure PDB files are in same directory as executable
+# Or set symbol path
+$env:_NT_SYMBOL_PATH="srv*C:\symbols*https://msdl.microsoft.com/download/symbols"
+
+# jeprof on Windows requires Perl
+perl bin\jeprof --text your_app.exe jeprof.*.heap
+----
+
+==== macOS
+
+Symbols resolved from:
+
+* Application binary with debug info
+* dSYM bundles (Xcode debug symbols)
+
+[source,bash]
+----
+# Build with debug symbols
+cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+# Analyze
+jeprof --text ./app heap.prof
+----
+
+== Platform-specific considerations
+
+=== Linux
+
+==== Performance characteristics
+
+* **libunwind backend**: Excellent backtrace quality, moderate overhead
+* **libgcc backend**: Lower quality backtraces, lower overhead
+* **Sampling overhead**: ~1-5% at default sampling rate (lg_prof_sample:19)
+
+==== Container environments
+
+When profiling in containers:
+
+[source,bash]
+----
+# Docker example
+docker run -v /tmp/profiling:/profiling \
+  -e MALLOC_CONF="prof:true,prof_prefix:/profiling/heap" \
+  your_image
+----
+
+=== Windows
+
+==== Backend implementation
+
+Windows profiling uses `CaptureStackBackTrace()` from `DbgHelp.lib`:
+
+* **Available**: Windows XP and later (all supported versions)
+* **Architectures**: x64, x86, ARM64
+* **Toolchains**: MSVC, MinGW, Clang-cl
+
+==== Symbol limitations
+
+* Module information captured correctly
+* Symbol resolution requires PDB files at analysis time
+* Frame pointer optimization may reduce backtrace quality
+
+==== Profiling overhead
+
+Typical overhead at default sampling (lg_prof_sample:19):
+
+* **x64/x86**: ~2-4% CPU overhead
+* **ARM64**: ~3-5% CPU overhead (native implementation)
+
+=== macOS
+
+==== Zone allocator integration
+
+macOS profiling works through the zone allocator interface:
+
+* Heap dumps include all jemalloc zones
+* Compatible with Instruments.app for visualization
+* Native integration with macOS memory tools
+
+==== Static linking note
+
+For static builds, ensure constructor is preserved:
+
+[source,c]
+----
+// src/zone.c already includes:
+JEMALLOC_ATTR(constructor)
+JEMALLOC_ATTR(used)  // Prevents linker dead-stripping
+void zone_register(void)
+----
+
+=== Alpine Linux (musl libc)
+
+==== Historical context
+
+Early jemalloc versions (< 5.0) had deadlock issues with static linking on musl. These issues are **resolved** in jemalloc 5.x series.
+
+==== Current status
+
+* ✅ **Static linking**: Fully supported with profiling
+* ✅ **Dynamic linking**: Fully supported
+* ✅ **Symbol resolution**: Works correctly with libunwind
+* ✅ **Container deployment**: Tested in production
+
+== Performance Profiling Best Practices
+
+=== Sampling strategy
+
+**Development/debugging:**
+[source,bash]
+----
+MALLOC_CONF="prof:true,lg_prof_sample:15" # Higher sampling rate
+----
+
+**Production monitoring:**
+[source,bash]
+----
+MALLOC_CONF="prof:true,lg_prof_sample:20" # Lower overhead
+----
+
+**Critical path analysis:**
+[source,bash]
+----
+MALLOC_CONF="prof:true,lg_prof_sample:10,prof_active:false"
+# Enable profiling programmatically around critical code
+----
+
+=== Reducing overhead
+
+**1. Increase sampling interval:**
+[source,bash]
+----
+# Sample every 4MB instead of 512KB
+MALLOC_CONF="prof:true,lg_prof_sample:22"
+----
+
+**2. Profile specific time windows:**
+[source,c]
+----
+// Start profiling
+bool active = true;
+mallctl("prof.active", NULL, NULL, &active, sizeof(active));
+
+// ... run workload ...
+
+// Stop profiling and dump
+mallctl("prof.dump", NULL, NULL, &filename, sizeof(filename));
+active = false;
+mallctl("prof.active", NULL, NULL, &active, sizeof(active));
+----
+
+**3. Profile specific threads:**
+[source,c]
+----
+// Disable for this thread
+bool thread_active = false;
+mallctl("thread.prof.active", NULL, NULL, &thread_active, sizeof(thread_active));
+----
+
+=== Memory leak detection
+
+**Enable leak detection mode:**
+[source,bash]
+----
+MALLOC_CONF="prof:true,prof_leak:true,prof_final:true"
+----
+
+This dumps the heap profile even if all allocations are freed, useful for detecting use-after-free patterns.
+
+== Troubleshooting
+
+=== Common issues
+
+==== No heap dumps generated
+
+**Check profiling is enabled:**
+[source,c]
+----
+bool prof_enabled;
+size_t sz = sizeof(prof_enabled);
+mallctl("opt.prof", &prof_enabled, &sz, NULL, 0);
+printf("Profiling enabled: %d\n", prof_enabled);
+----
+
+**Check prof_active:**
+[source,c]
+----
+bool prof_active;
+size_t sz = sizeof(prof_active);
+mallctl("prof.active", &prof_active, &sz, NULL, 0);
+printf("Profiling active: %d\n", prof_active);
+----
+
+==== Incomplete backtraces
+
+**Linux**: Install libunwind-dev and rebuild
+**Windows**: Ensure PDB files available, build with `/Zi` flag
+**macOS**: Build with `-g` flag, ensure dSYM bundles present
+
+==== High profiling overhead
+
+Increase sampling interval:
+[source,bash]
+----
+MALLOC_CONF="prof:true,lg_prof_sample:22"  # Sample every 4MB
+----
+
+==== jeprof symbol resolution fails
+
+**Linux:**
+[source,bash]
+----
+# Install debug symbols
+sudo apt-get install libc6-dbg
+
+# Check binary has symbols
+file ./your_app  # Should show "not stripped"
+----
+
+**Windows:**
+[source,powershell]
+----
+# Ensure PDB files in same directory as EXE
+dir *.pdb
+
+# Or set symbol server
+$env:_NT_SYMBOL_PATH="srv*C:\symbols*https://msdl.microsoft.com/download/symbols"
+----
+
+==== Container profiling issues
+
+Ensure volume mounts for heap dumps:
+[source,bash]
+----
+docker run -v /host/profiling:/profiling \
+  -e MALLOC_CONF="prof:true,prof_prefix:/profiling/heap" \
+  your_image
+----
+
+== Advanced Topics
+
+=== Statistical Sampling Theory
+
+jemalloc uses Bernoulli sampling with a geometric distribution to minimize
+overhead. Each byte allocated has a probability of being sampled, making large
+allocations more likely to be profiled.
+
+For details on the mathematical basis, see link:../doc_internal/PROFILING_INTERNALS.md[PROFILING_INTERNALS.md].
+
+=== Custom profiling hooks
+
+For advanced use cases, you can install custom profiling callbacks:
+
+[source,c]
+----
+#include <jemalloc/jemalloc.h>
+
+void my_prof_dump_handler(void *opaque, const char *profile) {
+    // Custom handling of heap dump
+}
+
+// Install handler (see prof_hook.h for API)
+----
+
+=== Integration with APM tools
+
+jemalloc profiling can integrate with Application Performance Monitoring tools:
+
+* **DataDog**: Custom metrics from mallctl stats
+* **New Relic**: Periodic heap snapshots
+* **Prometheus**: Export mallctl counters
+
+Example Prometheus integration:
+[source,c]
+----
+size_t allocated, resident;
+size_t sz = sizeof(size_t);
+mallctl("stats.allocated", &allocated, &sz, NULL, 0);
+mallctl("stats.resident", &resident, &sz, NULL, 0);
+
+// Export metrics
+prometheus_gauge_set(heap_allocated_bytes, allocated);
+prometheus_gauge_set(heap_resident_bytes, resident);
+----
+
+== Performance benchmarks
+
+=== ARMv8.5-A Speculation Barrier optimization
+
+==== General
+
+On ARM64 systems with **ARMv8.5-A or newer** processors, jemalloc automatically detects and
+uses the `SB` (Speculation Barrier) instruction instead of the older `ISB`
+(Instruction Synchronization Barrier) for improved spin delay performance.
+
+**ARMv8.5-A** introduced the SB instruction in 2019. This is available on:
+
+* Apple Silicon (M1/M2/M3/M4 - ARMv8.5-A to ARMv8.7-A+)
+* AWS Graviton 3/4 (ARMv9 = superset of ARMv8.5-A)
+* ARM Neoverse V1, V2, N2 cores
+* Snapdragon X Elite/Plus (ARMv8.7-A)
+
+NOTE: ARMv9 is a marketing term for ARMv8.5-A with additional features. All ARMv9 processors support SB.
+
+==== Cross-platform support
+
+jemalloc implements SB detection on **all ARM64 platforms**:
+
+**Linux ARM64**:: Runtime detection via `getauxval(AT_HWCAP)` and `HWCAP_SB` flag
+**macOS ARM64**:: Runtime detection via `sysctlbyname("hw.optional.arm.FEAT_SB")`
+**Windows ARM64**:: Runtime detection via registry (`ID_AA64ISAR1_EL1` - `CP 4031`)
+
+Detection is automatic and transparent - no configuration needed on any platform.
+
+==== Benchmark results
+
+Performance improvement varies by microarchitecture. Server-class ARM cores (Neoverse) typically show larger gains than client cores (Apple Silicon).
+
+**macOS Apple Silicon (M1)** - Measured on macOS 15:
+
+[cols="2,2,2,2",options="header"]
+|===
+|Instruction
+|Time (ns/iter)
+|Relative Performance
+|Notes
+
+|SB (ARMv8.5-A)
+|7.849
+|**1.13x faster**
+|Speculation barrier
+
+|ISB (ARMv8.0-8.4)
+|8.847
+|1.0x (baseline)
+|Instruction synchronization barrier
+|===
+
+**Performance improvement: ~11% faster spin delays**
+
+**AWS Graviton 3 (ARMv9 Neoverse V1)** - From link:https://github.com/jemalloc/jemalloc/pull/2843[upstream PR #2843]:
+
+[cols="2,2,2,2",options="header"]
+|===
+|Instruction
+|Time (ns/iter)
+|Relative Performance
+|Notes
+
+|SB (ARMv8.5-A)
+|5110.839
+|**1.71x faster**
+|Speculation barrier
+
+|ISB (ARMv8.0-8.4)
+|8740.725
+|1.0x (baseline)
+|Instruction synchronization barrier
+|===
+
+**Performance improvement: ~30% faster spin delays**
+
+NOTE: The performance difference reflects microarchitecture optimization levels. Server processors (Graviton) are optimized for instruction-level parallelism and show greater SB benefits.
+
+==== Supported hardware
+
+**Linux**::
+- AWS Graviton 3, Graviton 4 (ARMv9)
+- ARM Neoverse V1, V2, N2 cores
+- Modern ARM server processors (2022+)
+
+**macOS**::
+- All Apple Silicon: M1, M2, M3, M4 and variants (ARMv8.5-A+)
+- Tested on macOS 13-15
+
+**Windows**::
+- Snapdragon X Elite, Snapdragon X Plus (ARMv8.7-A)
+- Future Qualcomm ARM64 devices
+
+==== Verification
+
+**Linux**:
+[source,bash]
+----
+# Check for SB support
+grep -o 'sb' /proc/cpuinfo | head -1
+
+# If output is 'sb', SB instruction is supported
+# If no output, system uses ISB fallback
+----
+
+**macOS**:
+[source,bash]
+----
+# Check for SB support via sysctl
+sysctl -n hw.optional.arm.FEAT_SB  # Returns 1 if supported (ARMv8.5-A+)
+----
+
+**Windows**:
+[source,powershell]
+----
+# Check registry for ARMv8.5-A+ support
+# ID_AA64ISAR1_EL1 bits 11:8 should be nonzero for SB support
+----
+
+**Runtime verification (cross-platform)**:
+[source,c]
+----
+#include <stdio.h>
+extern int arm_has_sb_instruction;  // Defined by jemalloc
+
+int main() {
+    printf("SB instruction: %s\n",
+           arm_has_sb_instruction ? "Supported (ARMv8.5-A+)" : "Not supported (ARMv8.0-8.4)");
+    return 0;
+}
+----
+
+**Benchmark on your system**:
+[source,bash]
+----
+# Compile and run benchmark
+clang -O2 -o benchmark_sb benchmark_sb_macos.c
+./benchmark_sb
+----
+
+NOTE: This optimization is automatic - no configuration needed. jemalloc selects the best instruction at runtime based on CPU capabilities.
+
+== References
+
+* link:../doc_internal/PROFILING_INTERNALS.md[Profiling Internals] - Mathematical basis and implementation details
+* link:../README.adoc[README.adoc] - General jemalloc documentation
+* link:https://github.com/jemalloc/jemalloc/pull/2694[PR #2694] - Windows profiling backend
+* link:https://github.com/jemalloc/jemalloc/pull/2843[PR #2843] - ARMv9 SB optimization
+* link:https://github.com/gperftools/gperftools[gperftools] - Original tcmalloc profiling design
+
+== Support
+
+For issues or questions:
+
+* **GitHub Issues**: https://github.com/tamatebako/jemalloc/issues
+* **Upstream Issues**: https://github.com/jemalloc/jemalloc/issues
+* **Documentation**: This guide, README.adoc, INSTALL.adoc

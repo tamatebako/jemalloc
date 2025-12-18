@@ -1,0 +1,321 @@
+= Release process
+:toc:
+:toc-placement!:
+
+toc::[]
+
+== Overview
+
+This document describes the release process for jemalloc. The process is largely
+automated through GitHub Actions, with manual review steps to ensure quality.
+
+== Release types
+
+=== Version numbering
+
+jemalloc uses semantic versioning: `MAJOR.MINOR.PATCH`
+
+* **MAJOR**: Incompatible API changes
+* **MINOR**: New features, backwards compatible
+* **PATCH**: Backwards compatible bug fixes
+
+Current version is managed in the [`VERSION`](VERSION) file.
+
+=== Tebako fork versioning
+
+This fork maintains the version sequence:
+
+* Last upstream jemalloc: 5.3.0
+* First Tebako fork: 5.5.0
+* Future releases: 5.6.0, 5.7.0, 6.0.0, etc.
+
+== Automated release process
+
+=== Prerequisites
+
+* Write access to the repository
+* All changes for the release merged to `main`
+* CI passing on `main` branch
+
+=== Step 1: Trigger release workflow
+
+1. Go to https://github.com/tamatebako/jemalloc/actions/workflows/release.yml
+2. Click "Run workflow"
+3. Fill in the inputs:
+
+**next_version**::
+Choose one of:
+* `major` - Bump major version (5.5.0 → 6.0.0)
+* `minor` - Bump minor version (5.5.0 → 5.6.0)
+* `patch` - Bump patch version (5.5.0 → 5.5.1)
+* `x.y.z` - Specific version (e.g., 6.2.1)
+* `skip` - Don't bump version, use current
+
+**create_github_release**::
+* `true` - Automatically create GitHub release after tagging
+* `false` - Only create git tag, manual release creation required
+
+4. Click "Run workflow"
+
+=== Step 2: Review Release PR
+
+The workflow will automatically:
+
+1. ✅ Bump version in `VERSION` file
+2. ✅ Add template entry to `ChangeLog`
+3. ✅ Create release branch `release/vX.Y.Z`
+4. ✅ Commit changes
+5. ✅ Push branch
+6. ✅ Create pull request
+
+**Manual Steps**:
+
+1. Open the created PR (will be labeled `release` and `automated`)
+2. Review the `VERSION` file change
+3. **Edit the `ChangeLog` entry**:
+   - Replace template text with actual release notes
+   - List all new features
+   - List all portability improvements
+   - List all bug fixes
+   - List all optimizations
+   - Credit contributors with `@username`
+
+4. Ensure CI tests pass (runs automatically on PR)
+5. Approve and merge the PR
+
+=== Step 3: Automatic Tagging and Release
+
+After PR merge, the workflow automatically:
+
+1. ✅ Creates git tag `vX.Y.Z`
+2. ✅ Pushes tag to GitHub
+3. ✅ Creates GitHub release (if enabled)
+4. ✅ Extracts release notes from ChangeLog
+
+=== Step 4: Verify Release
+
+1. Check https://github.com/tamatebako/jemalloc/releases
+2. Verify release notes are correct
+3. Verify tag was created: https://github.com/tamatebako/jemalloc/tags
+
+== Manual Release Process
+
+If you need to create a release manually:
+
+=== Step 1: Bump Version
+
+[source,bash]
+----
+# From repository root
+.github/scripts/bump-version.sh [major|minor|patch|X.Y.Z]
+----
+
+This will:
+* Update `VERSION` file
+* Add template to `ChangeLog`
+* Prompt for confirmation
+
+=== Step 2: Edit ChangeLog
+
+Edit the top entry in `ChangeLog` to add actual release notes.
+
+=== Step 3: Commit and Push
+
+[source,bash]
+----
+git add VERSION ChangeLog
+git commit -m "chore: bump version to X.Y.Z"
+git push origin main
+----
+
+=== Step 4: Create Tag
+
+[source,bash]
+----
+git tag -a vX.Y.Z -m "Release vX.Y.Z"
+git push origin vX.Y.Z
+----
+
+=== Step 5: Create GitHub Release
+
+1. Go to https://github.com/tamatebako/jemalloc/releases/new
+2. Choose tag `vX.Y.Z`
+3. Title: `jemalloc vX.Y.Z`
+4. Copy release notes from ChangeLog
+5. Click "Publish release"
+
+== Release Checklist
+
+Before creating a release:
+
+- [ ] All planned features/fixes are merged
+- [ ] CI passing on main branch
+- [ ] Documentation updated if needed
+- [ ] No known critical bugs
+
+During release PR review:
+
+- [ ] VERSION file shows correct version
+- [ ] ChangeLog entry is complete and accurate
+- [ ] All contributors are credited
+- [ ] CI tests pass
+- [ ] Release notes are clear and informative
+
+After release:
+
+- [ ] GitHub release created
+- [ ] Git tag exists
+- [ ] Release notes published
+- [ ] Announcement (if needed)
+
+== Rollback Procedure
+
+If a release needs to be rolled back:
+
+=== Rollback Git Tag
+
+[source,bash]
+----
+# Delete local tag
+git tag -d vX.Y.Z
+
+# Delete remote tag
+git push origin :refs/tags/vX.Y.Z
+----
+
+=== Rollback GitHub Release
+
+1. Go to https://github.com/tamatebako/jemalloc/releases
+2. Find the release
+3. Click "Delete release"
+
+=== Revert Version Bump
+
+[source,bash]
+----
+# Revert the version bump commit
+git revert <commit-hash>
+git push origin main
+----
+
+== Troubleshooting
+
+=== Workflow Fails to Create PR
+
+**Symptom**: Release workflow completes but no PR is created
+
+**Solution**:
+1. Check workflow logs for errors
+2. Verify branch was created: `git branch -r | grep release/`
+3. Create PR manually from the release branch
+
+=== ChangeLog Extraction Fails
+
+**Symptom**: GitHub release has no description
+
+**Solution**:
+1. Edit the GitHub release manually
+2. Copy content from ChangeLog between version markers
+
+=== CI Fails on Release PR
+
+**Symptom**: Tests fail that were passing on main
+
+**Solution**:
+1. Fix the issues in the release branch
+2. Push fixes to release branch
+3. CI will re-run automatically
+4. Merge when passing
+
+=== Wrong Version Number
+
+**Symptom**: Released with incorrect version
+
+**Solution**:
+1. Don't panic - git tags can be moved
+2. Follow rollback procedure above
+3. Create new release with correct version
+4. Update ChangeLog to mark the incorrect version as skipped
+
+== Development Workflow Integration
+
+=== Pre-Release Testing
+
+Before triggering a release:
+
+1. Ensure all ~205 CI jobs pass on main
+2. Test on all supported platforms:
+   - Linux x64/ARM64 (Ubuntu, Alpine)
+   - Windows x64/x86/ARM64 (MSVC, MinGW)
+   - macOS Intel/ARM64
+   - FreeBSD 14.x/15.x
+   - RISC-V (smoke tests)
+
+3. Run manual integration tests if appropriate
+
+=== Post-Release
+
+After a successful release:
+
+1. Update any dependent projects
+2. Announce release (if needed)
+3. Monitor issue tracker for reports
+4. Plan next release cycle
+
+== Version Bump Script Details
+
+The `.github/scripts/bump-version.sh` script:
+
+**Features**:
+* Validates version format
+* Calculates next version automatically
+* Updates VERSION file
+* Adds ChangeLog template
+* Provides clear confirmation prompts
+* Color-coded output
+
+**Usage Examples**:
+
+[source,bash]
+----
+# Bump minor version (5.5.0 → 5.6.0)
+./github/scripts/bump-version.sh minor
+
+# Bump major version (5.5.0 → 6.0.0)
+./.github/scripts/bump-version.sh major
+
+# Bump patch version (5.5.0 → 5.5.1)
+./.github/scripts/bump-version.sh patch
+
+# Set specific version
+./.github/scripts/bump-version.sh 6.2.1
+----
+
+== Best Practices
+
+=== Release Frequency
+
+* **Minor releases**: Every 2-4 months with new features
+* **Patch releases**: As needed for critical fixes
+* **Major releases**: When breaking changes are necessary
+
+=== ChangeLog Guidelines
+
+* **Be specific**: Don't just say "bug fixes", list what was fixed
+* **Credit contributors**: Use `@username` for all contributors
+* **Link issues**: Reference issue numbers when relevant
+* **Categorize**: Use the standard categories (features, portability, bugs, optimizations)
+* **Be user-focused**: Write for users, not developers
+
+=== Communication
+
+* Announce releases on project communication channels
+* Update documentation links to point to new version
+* Notify downstream maintainers of changes
+
+== Additional Resources
+
+* link:ChangeLog[ChangeLog] - Full release history
+* link:.github/workflows/release.yml[Release Workflow] - Automation code
+* link:.github/scripts/bump-version.sh[Version Bump Script] - Manual tool
+* link:README.adoc[README] - Project overview

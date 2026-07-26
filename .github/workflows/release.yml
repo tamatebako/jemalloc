@@ -177,6 +177,9 @@ jobs:
     name: Tag and create GitHub release
     runs-on: ubuntu-24.04
     if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'release')
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+      tag: ${{ steps.get_version.outputs.tag }}
 
     steps:
       - name: Checkout repository
@@ -189,6 +192,7 @@ jobs:
         run: |
           VERSION=$(grep '"version-string"' ports/jemalloc/vcpkg.json | cut -d'"' -f4)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v${VERSION}" >> $GITHUB_OUTPUT
           echo "Version: $VERSION"
 
       - name: Extract release notes from ChangeLog
@@ -243,3 +247,108 @@ jobs:
           if [[ "${{ github.event.inputs.create_github_release }}" == "true" ]]; then
             echo "::notice::GitHub release: https://github.com/${{ github.repository }}/releases/tag/v${VERSION}"
           fi
+
+  build-ohos-artifacts:
+    # Cross-compiles jemalloc for aarch64-linux-ohos and uploads signed
+    # artifacts to the release. Reuses the same setup-ohos-ndk.sh +
+    # binary-sign-tool flow as the ohos.yml CI workflow.
+    name: Cross-compile OHOS artifacts + upload to release
+    needs: tag-and-release
+    runs-on: ubuntu-latest
+    if: needs.tag-and-release.result == 'success' && github.event.inputs.create_github_release == 'true'
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout at tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.tag-and-release.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+              build-essential cmake ninja-build curl jq unzip file ca-certificates
+
+      - name: Cache OHOS NDK (~4 GB)
+        id: cache-ndk
+        uses: actions/cache@v4
+        with:
+          path: /opt/ohos
+          key: ohos-ndk-${{ hashFiles('.github/scripts/setup-ohos-ndk.sh') }}
+
+      - name: Setup OHOS NDK (if cache miss)
+        if: steps.cache-ndk.outputs.cache-hit != 'true'
+        run: ./.github/scripts/setup-ohos-ndk.sh --prefix /opt/ohos
+
+      - name: Cross-compile jemalloc
+        run: |
+          cmake -S . -B build-ohos \
+            -DCMAKE_TOOLCHAIN_FILE=/opt/ohos/ohos-sdk/linux/native/build/cmake/ohos.toolchain.cmake \
+            -DOHOS_ARCH=arm64-v8a \
+            -DOHOS_PLATFORM=OHOS \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DJEMALLOC_BUILD_SHARED=ON \
+            -DJEMALLOC_BUILD_STATIC=ON \
+            -DJEMALLOC_ENABLE_STATS=ON \
+            -DJEMALLOC_ENABLE_PROF=OFF \
+            -DJEMALLOC_ENABLE_DOC=OFF \
+            -DBUILD_TESTING=OFF \
+            -G Ninja
+          cmake --build build-ohos -j"$(nproc)"
+
+      - name: Verify .so is ARM aarch64 ELF
+        run: |
+          file build-ohos/libjemalloc.so
+          file build-ohos/libjemalloc.so | grep -q 'ELF 64-bit LSB .* ARM aarch64'
+
+      - name: Code-sign libjemalloc.so
+        run: |
+          /opt/ohos/ohos-sdk/linux/toolchains/lib/binary-sign-tool sign \
+            -selfSign 1 \
+            -inFile build-ohos/libjemalloc.so \
+            -outFile build-ohos/libjemalloc.so
+
+      - name: Stage artifacts for upload
+        run: |
+          mkdir -p ohos-artifacts
+          cp -a build-ohos/libjemalloc.so      ohos-artifacts/
+          cp -a build-ohos/libjemalloc.so.*    ohos-artifacts/ 2>/dev/null || true
+          cp -a build-ohos/libjemalloc.a       ohos-artifacts/
+          tar -czf ohos-artifacts/jemalloc-ohos-include.tar.gz \
+              -C build-ohos include
+          # Generate a brief SHA256 manifest.
+          ( cd ohos-artifacts && sha256sum * | tee SHA256SUMS )
+
+      - name: Run smoke-test in dockerharmony
+        run: |
+          # Build smoke-test binary, run it via qemu+dockerharmony, ensure
+          # the uploaded artifacts actually work end-to-end on OHOS.
+          /opt/ohos/llvm-19/llvm/bin/clang \
+            --target=aarch64-linux-ohos \
+            --sysroot=/opt/ohos/ohos-sdk/linux/native/sysroot \
+            -O2 -I build-ohos/include -L build-ohos -Wl,-rpath='$ORIGIN' \
+            -o build-ohos/smoke-test .github/scripts/ohos-smoke-test.c \
+            -ljemalloc -lpthread -ldl
+          mkdir -p ohos-verify
+          cp -a build-ohos/libjemalloc.so* ohos-verify/ 2>/dev/null || true
+          cp -a build-ohos/libjemalloc.so  ohos-verify/
+          cp -a build-ohos/smoke-test      ohos-verify/
+          docker run --privileged --rm tonistiigi/binfmt --install arm64
+          docker run --rm -v "$PWD/ohos-verify:/work" -w /work \
+            ghcr.io/hqzing/dockerharmony:latest \
+            sh -c 'LD_LIBRARY_PATH=. ./smoke-test'
+
+      - name: Upload signed .so + .a + headers to release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.tag-and-release.outputs.tag }}
+          files: |
+            ohos-artifacts/libjemalloc.so
+            ohos-artifacts/libjemalloc.so.*
+            ohos-artifacts/libjemalloc.a
+            ohos-artifacts/jemalloc-ohos-include.tar.gz
+            ohos-artifacts/SHA256SUMS
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

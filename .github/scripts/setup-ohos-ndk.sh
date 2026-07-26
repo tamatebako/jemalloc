@@ -177,13 +177,25 @@ if [ ! -f "$TOOLCHAIN" ]; then
     echo "[setup-ohos-ndk] FAIL: ohos.toolchain.cmake missing at $TOOLCHAIN" >&2
     exit 1
 fi
-if [ ! -f "$PREFIX/ohos-sdk/linux/native/sysroot/usr/include/bits/alltypes.h" ]; then
-    echo "[setup-ohos-ndk] FAIL: per-arch sysroot symlink did not resolve" >&2
-    ls -la "$PREFIX/ohos-sdk/linux/native/sysroot/usr/include/" >&2 || true
+# The sysroot is a relative symlink. Resolve and verify usr/include exists.
+SYSROOT_REAL=$(readlink -f "$PREFIX/ohos-sdk/linux/native/sysroot" 2>/dev/null || true)
+echo "[setup-ohos-ndk] sysroot resolves to: ${SYSROOT_REAL:-<empty>}"
+if [ ! -d "$SYSROOT_REAL/usr/include" ]; then
+    echo "[setup-ohos-ndk] FAIL: per-arch sysroot symlink did not resolve to a usable usr/include" >&2
+    echo "[setup-ohos-ndk] symlink:" >&2
+    ls -la "$PREFIX/ohos-sdk/linux/native/sysroot" >&2 || true
+    echo "[setup-ohos-ndk] /opt/ohos/llvm-19/sysroot contents:" >&2
+    ls -la "$PREFIX/llvm-19/sysroot" >&2 || true
+    echo "[setup-ohos-ndk] sysroot/usr/include (if exists):" >&2
+    ls -la "$PREFIX/llvm-19/sysroot/usr/include" 2>&1 | head -10 >&2 || true
+    echo "[setup-ohos-ndk] recursive find for 'bits' dirs under llvm-19/sysroot:" >&2
+    find "$PREFIX/llvm-19/sysroot" -type d -name bits 2>/dev/null | head -10 >&2 || true
     exit 1
 fi
+echo "[setup-ohos-ndk] sysroot/usr/include sample:"
+ls "$SYSROOT_REAL/usr/include/" 2>&1 | head -8 | sed 's/^/  /'
 if [ ! -x "$PREFIX/llvm-19/llvm/bin/clang" ]; then
-    echo "[setup-ohos-ndk] FAIL: clang not found at \$PREFIX/llvm-19/llvm/bin/clang" >&2
+    echo "[setup-ohos-ndk] FAIL: clang not found at $PREFIX/llvm-19/llvm/bin/clang" >&2
     ls -la "$PREFIX/llvm-19" >&2 || true
     exit 1
 fi

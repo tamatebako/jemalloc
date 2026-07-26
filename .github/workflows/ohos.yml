@@ -90,8 +90,10 @@ jobs:
       - name: Verify libjemalloc.so is an arm64 ELF
         run: |
           set -e
-          file build-ohos/libjemalloc.so
-          file build-ohos/libjemalloc.so | grep -q 'ELF 64-bit LSB .* ARM aarch64'
+          # Follow the so.N -> so.N.M.P chain via -L; libjemalloc.so itself
+          # is a dev symlink that 'file' reports as just "symbolic link to...".
+          file -L build-ohos/libjemalloc.so
+          file -L build-ohos/libjemalloc.so | grep -q 'ELF 64-bit LSB .* ARM aarch64'
 
       - name: Code-sign libjemalloc.so (self-signed)
         run: |

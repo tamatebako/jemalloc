@@ -158,9 +158,14 @@ else
     cp -a "$LLVM_ROOT/." "$PREFIX/llvm-19/llvm/"
 fi
 
-# Move the sysroot into place.
+# Move the sysroot into place. Preserve the aarch64-linux-ohos/ dir name
+# inside $PREFIX/llvm-19/sysroot/ — the relative symlink below expects
+# sysroot/aarch64-linux-ohos/usr/include/, matching the gist's documented
+# layout. Use a trailing slash on the dest so mv moves INTO the dir rather
+# than renaming the source.
 rmdir "$PREFIX/llvm-19/sysroot"
-mv "$SYSROOT_SRC" "$PREFIX/llvm-19/sysroot"
+mkdir -p "$PREFIX/llvm-19/sysroot"
+mv "$SYSROOT_SRC" "$PREFIX/llvm-19/sysroot/"
 rm -rf "$PREFIX/llvm-19-extract"
 
 # --- The two-sysroots fix (CRITICAL) -------------------------------------

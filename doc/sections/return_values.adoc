@@ -1,0 +1,54 @@
+== RETURN VALUES
+
+=== STANDARD API
+
+The *malloc()* and *calloc()* functions return a pointer to the allocated memory if successful; otherwise a `NULL` pointer is returned and `errno` is set to `ENOMEM`.
+
+The *posix_memalign()* function returns the value 0 if successful; otherwise it returns an error value. The *posix_memalign()* function will fail if:
+
+`EINVAL`::
+  The _alignment_ parameter is not a power of 2 at least as large as `sizeof(void *)`.
+
+`ENOMEM`::
+  Memory allocation error.
+
+The *aligned_alloc()* function returns a pointer to the allocated memory if successful; otherwise a `NULL` pointer is returned and `errno` is set. The *aligned_alloc()* function will fail if:
+
+`EINVAL`::
+  The _alignment_ parameter is not a power of 2.
+
+`ENOMEM`::
+  Memory allocation error.
+
+The *realloc()* function returns a pointer, possibly identical to _ptr_, to the allocated memory if successful; otherwise a `NULL` pointer is returned, and `errno` is set to `ENOMEM` if the error was the result of an allocation failure. The *realloc()* function always leaves the original buffer intact when an error occurs.
+
+The *free()* function returns no value.
+
+=== NON-STANDARD API
+
+The *mallocx()* and *rallocx()* functions return a pointer to the allocated memory if successful; otherwise a `NULL` pointer is returned to indicate insufficient contiguous memory was available to service the allocation request.
+
+The *xallocx()* function returns the real size of the resulting resized allocation pointed to by _ptr_, which is a value less than _size_ if the allocation could not be adequately grown in place.
+
+The *sallocx()* function returns the real size of the allocation pointed to by _ptr_.
+
+The *nallocx()* returns the real size that would result from a successful equivalent *mallocx()* function call, or zero if insufficient memory is available to perform the size computation.
+
+The *mallctl()*, *mallctlnametomib()*, and *mallctlbymib()* functions return 0 on success; otherwise they return an error value. The functions will fail if:
+
+`EINVAL`::
+  _newp_ is not `NULL`, and _newlen_ is too large or too small. Alternatively, _*oldlenp_ is too large or too small; when it happens, except for a very few cases explicitly documented otherwise, as much data as possible are read despite the error, with the amount of data read being recorded in _*oldlenp_.
+
+`ENOENT`::
+  _name_ or _mib_ specifies an unknown/invalid value.
+
+`EPERM`::
+  Attempt to read or write void value, or attempt to write read-only value.
+
+`EAGAIN`::
+  A memory allocation failure occurred.
+
+`EFAULT`::
+  An interface with side effects failed in some way not directly related to *mallctl*()* read/write processing.
+
+The *malloc_usable_size()* function returns the usable size of the allocation pointed to by _ptr_.

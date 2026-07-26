@@ -1,0 +1,6 @@
+== ENVIRONMENT
+
+The following environment variable affects the execution of the allocation functions:
+
+`MALLOC_CONF`::
+  If the environment variable `MALLOC_CONF` is set, the characters it contains will be interpreted as options.

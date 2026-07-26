@@ -208,6 +208,11 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND BUILD_TESTING)
     # add_subdirectory(test)
 endif()
 
+# Add documentation subdirectory
+if(JEMALLOC_ENABLE_DOC)
+    add_subdirectory(doc)
+endif()
+
 # ============================================================================
 # Configuration Summary
 # ============================================================================

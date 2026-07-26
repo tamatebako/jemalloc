@@ -484,7 +484,7 @@ printf("Pointer %p has %zu-byte alignment\n", p, alignment);
 |HarmonyOS PC (OHOS)
 |ARM64 (`aarch64-linux-ohos`)
 |clang (OHOS NDK)
-|—
+|✅ Cross-compile + dockerharmony
 |✅ Yes
 |✅ Yes (`arm64-ohos` triplet)
 |===

@@ -23,6 +23,9 @@ on:
         required: true
         type: boolean
         default: true
+  pull_request:
+    types: [closed]
+    branches: [main]
 
 jobs:
   validate-and-bump:

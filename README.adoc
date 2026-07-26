@@ -462,6 +462,13 @@ printf("Pointer %p has %zu-byte alignment\n", p, alignment);
 |✅ Full
 |✅ Yes
 |✅ Yes
+
+|HarmonyOS PC (OHOS)
+|ARM64 (`aarch64-linux-ohos`)
+|clang (OHOS NDK)
+|—
+|✅ Yes
+|✅ Yes (`arm64-ohos` triplet)
 |===
 
 

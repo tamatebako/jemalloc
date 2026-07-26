@@ -1,6 +1,6 @@
 # DetectPlatform.cmake
 # Platform detection and configuration
-# Sets JEMALLOC_PLATFORM to one of: windows, linux, darwin, freebsd, unix
+# Sets JEMALLOC_PLATFORM to one of: windows, linux, ohos, darwin, freebsd, unix
 
 # Detect platform - MECE (Mutually Exclusive, Collectively Exhaustive)
 if(WIN32)
@@ -17,6 +17,17 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
     set(JEMALLOC_IS_WINDOWS FALSE)
     set(JEMALLOC_IS_UNIX TRUE)
     set(JEMALLOC_IS_LINUX TRUE)
+elseif(CMAKE_SYSTEM_NAME MATCHES "OHOS")
+    # HarmonyOS PC: OpenHarmony-derived, musl libc, Linux kernel.
+    # Treat as Linux-compatible for source/feature detection (the OHOS clang
+    # also defines __linux__), but expose JEMALLOC_IS_OHOS for any future
+    # OHOS-specific behavior.
+    set(JEMALLOC_PLATFORM "ohos")
+    set(JEMALLOC_IS_WINDOWS FALSE)
+    set(JEMALLOC_IS_UNIX TRUE)
+    set(JEMALLOC_IS_LINUX TRUE)
+    set(JEMALLOC_IS_OHOS TRUE)
+    message(STATUS "HarmonyOS (OHOS) detected, treating as Linux-compatible")
 elseif(CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
     set(JEMALLOC_PLATFORM "freebsd")
     set(JEMALLOC_IS_WINDOWS FALSE)

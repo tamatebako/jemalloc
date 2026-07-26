@@ -28,7 +28,9 @@ list(APPEND JEMALLOC_PLATFORM_LIBS Threads::Threads)
 include(CheckSymbolExists)
 check_symbol_exists(sbrk "unistd.h" JEMALLOC_HAVE_SBRK)
 
-# Detect C library type (glibc vs musl)
+# Detect C library type (glibc vs musl).
+# OHOS uses musl on a Linux-derived kernel; the NDK clang's -dumpmachine is
+# "aarch64-linux-ohos" (no "musl" in the tuple), so detect via the platform.
 if(CMAKE_SYSTEM_NAME MATCHES "Linux")
     execute_process(
         COMMAND ${CMAKE_C_COMPILER} -dumpmachine
@@ -43,6 +45,9 @@ if(CMAKE_SYSTEM_NAME MATCHES "Linux")
         message(STATUS "Detected glibc")
         set(JEMALLOC_IS_GLIBC TRUE)
     endif()
+elseif(CMAKE_SYSTEM_NAME MATCHES "OHOS")
+    message(STATUS "Detected musl libc (HarmonyOS)")
+    set(JEMALLOC_IS_MUSL TRUE)
 endif()
 
 # Export to parent scope

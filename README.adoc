@@ -35,6 +35,23 @@ While the original project is frozen, this fork continues to:
 * Address bugs reported by the community
 
 
+== Supported platforms
+
+jemalloc runs on every major desktop, server, mobile, and embedded OS in use
+today:
+
+* *Linux* (glibc + musl) — x64, ARM64, x86 (cross-compile)
+* *Windows* (MSVC + MinGW) — x64, x86, ARM64
+* *macOS* — Intel + Apple Silicon (ARM64)
+* *FreeBSD* — x64
+* *Linux RISC-V* — riscv64
+* *HarmonyOS PC (OHOS)* — ARM64 (`aarch64-linux-ohos`)
+
+CMake and vcpkg are the recommended integration paths for all of the above.
+See link:#platform-support-matrix[Platform support matrix] for the full
+breakdown of compilers, CI coverage, and package-manager status.
+
+
 == Installation
 
 === Quick start
@@ -410,6 +427,7 @@ printf("Pointer %p has %zu-byte alignment\n", p, alignment);
 ----
 
 
+[#platform-support-matrix]
 == Platform support
 
 [cols="1,2,2,1,1,1",options="header"]

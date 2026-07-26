@@ -1,0 +1,7 @@
+== DIAGNOSTIC MESSAGES
+
+If any of the memory allocation/deallocation functions detect an error or warning condition, a message will be printed to file descriptor `STDERR_FILENO`. Errors will result in the process dumping core. If the <<opt.abort,`opt.abort`>> option is set, most warnings are treated as errors.
+
+The `malloc_message` variable allows the programmer to override the function which emits the text strings forming the errors and warnings if for some reason the `STDERR_FILENO` file descriptor is not suitable for this. *malloc_message()* takes the _cbopaque_ pointer argument that is `NULL` unless overridden by the arguments in a call to *malloc_stats_print()*, followed by a string pointer. Please note that doing anything which tries to allocate memory in this function is likely to result in a crash or deadlock.
+
+All messages are prefixed by "`<jemalloc>:`".

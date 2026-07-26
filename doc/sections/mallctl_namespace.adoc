@@ -1,0 +1,574 @@
+== MALLCTL NAMESPACE
+
+The following names are defined in the namespace accessible via the *mallctl*()* functions. Value types are specified in parentheses, their readable/writable statuses are encoded as `rw`, `r-`, `-w`, or `--`, and required build configuration flags follow, if any. A name element encoded as `<i>` or `<j>` indicates an integer component, where the integer varies from 0 to some upper value that must be determined via introspection. In the case of `stats.arenas.<i>.*` and `arena.<i>.{initialized,purge,decay,dss}`, `<i>` equal to `MALLCTL_ARENAS_ALL` can be used to operate on all arenas or access the summation of statistics from all arenas; similarly `<i>` equal to `MALLCTL_ARENAS_DESTROYED` can be used to access the summation of statistics from all destroyed arenas. These constants can be utilized either via *mallctlnametomib()* followed by *mallctlbymib()*, or via code such as the following:
+
+[source,c]
+----
+#define STRINGIFY_HELPER(x) #x
+#define STRINGIFY(x) STRINGIFY_HELPER(x)
+
+mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".decay",
+    NULL, NULL, NULL, 0);
+----
+
+Take special note of the <<epoch,`epoch`>> mallctl, which controls refreshing of cached dynamic statistics.
+
+`version` (`const char *`) `r-`::
+  Return the jemalloc version string.
+
+`epoch` (`uint64_t`) `rw`::
+  If a value is passed in, refresh the data from which the *mallctl*()* functions report values, and increment the epoch. Return the current epoch. This is useful for detecting whether another thread caused a refresh.
+
+`background_thread` (`bool`) `rw`::
+  Enable/disable internal background worker threads. When set to true, background threads are created on demand (the number of background threads will be no more than the number of CPUs or active arenas). Threads run periodically, and handle <<arena.i.decay,purging>> asynchronously. When switching off, background threads are terminated synchronously. Note that after fork(2) function, the state in the child process will be disabled regardless the state in parent process. See <<stats.background_thread.num_threads,`stats.background_thread`>> for related stats. <<opt.background_thread,`opt.background_thread`>> can be used to set the default option. This option is only available on selected pthread-based platforms.
+
+`max_background_threads` (`size_t`) `rw`::
+  Maximum number of background worker threads that will be created. This value is capped at <<opt.max_background_threads,`opt.max_background_threads`>> at startup.
+
+`config.cache_oblivious` (`bool`) `r-`::
+  `--enable-cache-oblivious` was specified during build configuration.
+
+`config.debug` (`bool`) `r-`::
+  `--enable-debug` was specified during build configuration.
+
+`config.fill` (`bool`) `r-`::
+  `--enable-fill` was specified during build configuration.
+
+`config.lazy_lock` (`bool`) `r-`::
+  `--enable-lazy-lock` was specified during build configuration.
+
+`config.malloc_conf` (`const char *`) `r-`::
+  Embedded configure-time-specified run-time options string, empty unless `--with-malloc-conf` was specified during build configuration.
+
+`config.prof` (`bool`) `r-`::
+  `--enable-prof` was specified during build configuration.
+
+`config.prof_libgcc` (`bool`) `r-`::
+  `--disable-prof-libgcc` was not specified during build configuration.
+
+`config.prof_libunwind` (`bool`) `r-`::
+  `--enable-prof-libunwind` was specified during build configuration.
+
+`config.prof_frameptr` (`bool`) `r-`::
+  `--enable-prof-frameptr` was specified during build configuration.
+
+`config.stats` (`bool`) `r-`::
+  `--enable-stats` was specified during build configuration.
+
+`config.utrace` (`bool`) `r-`::
+  `--enable-utrace` was specified during build configuration.
+
+`config.xmalloc` (`bool`) `r-`::
+  `--enable-xmalloc` was specified during build configuration.
+
+`opt.abort` (`bool`) `r-`::
+  Abort-on-warning enabled/disabled. If true, most warnings are fatal. Note that runtime option warnings are not included (see <<opt.abort_conf,`opt.abort_conf`>> for that). The process will call abort(3) in these cases. This option is disabled by default unless `--enable-debug` is specified during configuration, in which case it is enabled by default.
+
+`opt.confirm_conf` (`bool`) `r-`::
+  Confirm-runtime-options-when-program-starts enabled/disabled. If true, the string specified via `--with-malloc-conf`, the string pointed to by the global variable `malloc_conf`, the "name" of the file referenced by the symbolic link named `/etc/malloc.conf`, and the value of the environment variable `MALLOC_CONF`, will be printed in order. Then, each option being set will be individually printed. This option is disabled by default.
+
+`opt.abort_conf` (`bool`) `r-`::
+  Abort-on-invalid-configuration enabled/disabled. If true, invalid runtime options are fatal. The process will call abort(3) in these cases. This option is disabled by default unless `--enable-debug` is specified during configuration, in which case it is enabled by default.
+
+`opt.cache_oblivious` (`bool`) `r-`::
+  Enable / Disable cache-oblivious large allocation alignment, for large requests with no alignment constraints. If this feature is disabled, all large allocations are page-aligned as an implementation artifact, which can severely harm CPU cache utilization. However, the cache-oblivious layout comes at the cost of one extra page per large allocation, which in the most extreme case increases physical memory usage for the 16 KiB size class to 20 KiB. This option is enabled by default.
+
+`opt.metadata_thp` (`const char *`) `r-`::
+  Controls whether to allow jemalloc to use transparent huge page (THP) for internal metadata (see <<stats.metadata,stats.metadata>>). "always" allows such usage. "auto" uses no THP initially, but may begin to do so when metadata usage reaches certain level. The default is "disabled".
+
+`opt.trust_madvise` (`bool`) `r-`::
+  If true, do not perform runtime check for MADV_DONTNEED, to check that it actually zeros pages. The default is disabled on Linux and enabled elsewhere.
+
+`opt.retain` (`bool`) `r-`::
+  If true, retain unused virtual memory for later reuse rather than discarding it by calling munmap(2) or equivalent (see <<stats.retained,stats.retained>> for related details). It also makes jemalloc use mmap(2) or equivalent in a more greedy way, mapping larger chunks in one go. This option is disabled by default unless discarding virtual memory is known to trigger platform-specific performance problems, namely 1) for [64-bit] Linux, which has a quirk in its virtual memory allocation algorithm that causes semi-permanent VM map holes under normal jemalloc operation; and 2) for [64-bit] Windows, which disallows split / merged regions with _`MEM_RELEASE`_. Although the same issues may present on 32-bit platforms as well, retaining virtual memory for 32-bit Linux and Windows is disabled by default due to the practical possibility of address space exhaustion.
+
+`opt.dss` (`const char *`) `r-`::
+  dss (sbrk(2)) allocation precedence as related to mmap(2) allocation. The following settings are supported if sbrk(2) is supported by the operating system: "disabled", "primary", and "secondary"; otherwise only "disabled" is supported. The default is "secondary" if sbrk(2) is supported by the operating system; "disabled" otherwise.
+
+`opt.narenas` (`unsigned`) `r-`::
+  Maximum number of arenas to use for automatic multiplexing of threads and arenas. The default is four times the number of CPUs, or one if there is a single CPU.
+
+`opt.oversize_threshold` (`size_t`) `r-`::
+  The threshold in bytes of which requests are considered oversize. Allocation requests with greater sizes are fulfilled from a dedicated arena (automatically managed, however not within `narenas`), in order to reduce fragmentation by not mixing huge allocations with small ones. In addition, the decay API guarantees on the extents greater than the specified threshold may be overridden. Note that requests with arena index specified via `MALLOCX_ARENA`, or threads associated with explicit arenas will not be considered. The default threshold is 8MiB. Values not within large size classes disables this feature.
+
+`opt.percpu_arena` (`const char *`) `r-`::
+  Per CPU arena mode. Use the "percpu" setting to enable this feature, which uses number of CPUs to determine number of arenas, and bind threads to arenas dynamically based on the CPU the thread runs on currently. "phycpu" setting uses one arena per physical CPU, which means the two hyper threads on the same CPU share one arena. Note that no runtime checking regarding the availability of hyper threading is done at the moment. When set to "disabled", narenas and thread to arena association will not be impacted by this option. The default is "disabled".
+
+`opt.background_thread` (`bool`) `r-`::
+  Internal background worker threads enabled/disabled. Because of potential circular dependencies, enabling background thread using this option may cause crash or deadlock during initialization. For a reliable way to use this feature, see <<background_thread,background_thread>> for dynamic control options and details. This option is disabled by default.
+
+`opt.max_background_threads` (`size_t`) `r-`::
+  Maximum number of background threads that will be created if <<background_thread,background_thread>> is set. Defaults to number of cpus.
+
+`opt.dirty_decay_ms` (`ssize_t`) `r-`::
+  Approximate time in milliseconds from the creation of a set of unused dirty pages until an equivalent set of unused dirty pages is purged (i.e. converted to muzzy via e.g. *madvise(_...__`MADV_FREE`_)* if supported by the operating system, or converted to clean otherwise) and/or reused. Dirty pages are defined as previously having been potentially written to by the application, and therefore consuming physical memory, yet having no current use. The pages are incrementally purged according to a sigmoidal decay curve that starts and ends with zero purge rate. A decay time of 0 causes all unused dirty pages to be purged immediately upon creation. A decay time of -1 disables purging. The default decay time is 10 seconds. Be sure to read <<delayed_memory_return,DELAYED MEMORY RETURN>> for the adverse effect that this mechanism can have under memory pressure. Be aware that decay times > 0 will not be honored until the next relevant call into jemalloc, unless <<background_thread,`background_thread`>> is enabled; see <<delayed_memory_return,DELAYED MEMORY RETURN>>. See <<arenas.dirty_decay_ms,`arenas.dirty_decay_ms`>> and <<arena.i.dirty_decay_ms,`arena.<i>.dirty_decay_ms`>> for related dynamic control options. See <<opt.muzzy_decay_ms,`opt.muzzy_decay_ms`>> for a description of muzzy pages. Note that when the <<opt.oversize_threshold,`oversize_threshold`>> feature is enabled, the arenas reserved for oversize requests may have its own default decay settings.
+
+`opt.muzzy_decay_ms` (`ssize_t`) `r-`::
+  Approximate time in milliseconds from the creation of a set of unused muzzy pages until an equivalent set of unused muzzy pages is purged (i.e. converted to clean) and/or reused. Muzzy pages are defined as previously having been unused dirty pages that were subsequently purged in a manner that left them subject to the reclamation whims of the operating system (e.g. *madvise(_...__`MADV_FREE`_)*), and therefore in an indeterminate state. A drawback of this method is reduced observability, since e.g. on Linux, memory freed this way is still displayed as resident process memory (RSS) in many tools that display memory usage, making it more difficult to check how much memory a process is actually using. The pages are incrementally purged according to a sigmoidal decay curve that starts and ends with zero purge rate. A decay time of 0 causes all unused muzzy pages to be purged immediately upon creation. A decay time of -1 disables purging. Muzzy decay is disabled by default (with decay time 0). Be aware that decay times > 0 will not be honored until the next relevant call into jemalloc, unless <<background_thread,`background_thread`>> is enabled; see <<delayed_memory_return,DELAYED MEMORY RETURN>>. See <<arenas.muzzy_decay_ms,`arenas.muzzy_decay_ms`>> and <<arena.i.muzzy_decay_ms,`arena.<i>.muzzy_decay_ms`>> for related dynamic control options.
+
+`opt.lg_extent_max_active_fit` (`size_t`) `r-`::
+  When reusing dirty extents, this determines the (log base 2 of the) maximum ratio between the size of the active extent selected (to split off from) and the size of the requested allocation. This prevents the splitting of large active extents for smaller allocations, which can reduce fragmentation over the long run (especially for non-active extents). Lower value may reduce fragmentation, at the cost of extra active extents. The default value is 6, which gives a maximum ratio of 64 (2^6).
+
+`opt.stats_print` (`bool`) `r-`::
+  Enable/disable statistics printing at exit. If enabled, the *malloc_stats_print()* function is called at program exit via an atexit(3) function. <<opt.stats_print_opts,`opt.stats_print_opts`>> can be combined to specify output options. If `--enable-stats` is specified during configuration, this has the potential to cause deadlock for a multi-threaded process that exits while one or more threads are executing in the memory allocation functions. Furthermore, *atexit()* may allocate memory during application initialization and then deadlock internally when jemalloc in turn calls *atexit()*, so this option is not universally usable (though the application can register its own *atexit()* function with equivalent functionality). Therefore, this option should only be used with care; it is primarily intended as a performance tuning aid during application development. This option is disabled by default.
+
+`opt.stats_print_opts` (`const char *`) `r-`::
+  Options (the _opts_ string) to pass to the *malloc_stats_print()* at exit (enabled through <<opt.stats_print,`opt.stats_print`>>). See available options in <<malloc_stats_print_opts,*malloc_stats_print()*>>. Has no effect unless <<opt.stats_print,`opt.stats_print`>> is enabled. The default is "".
+
+`opt.stats_interval` (`int64_t`) `r-`::
+  Average interval between statistics outputs, as measured in bytes of allocation activity. The actual interval may be sporadic because decentralized event counters are used to avoid synchronization bottlenecks. The output may be triggered on any thread, which then calls *malloc_stats_print()*. <<opt.stats_interval_opts,`opt.stats_interval_opts`>> can be combined to specify output options. By default, interval-triggered stats output is disabled (encoded as -1).
+
+`opt.stats_interval_opts` (`const char *`) `r-`::
+  Options (the _opts_ string) to pass to the *malloc_stats_print()* for interval based statistics printing (enabled through <<opt.stats_interval,`opt.stats_interval`>>). See available options in <<malloc_stats_print_opts,*malloc_stats_print()*>>. Has no effect unless <<opt.stats_interval,`opt.stats_interval`>> is enabled. The default is "".
+
+`opt.junk` (`const char *`) `r-` [`--enable-fill`]::
+  Junk filling. If set to "alloc", each byte of uninitialized allocated memory will be initialized to `0xa5`. If set to "free", all deallocated memory will be initialized to `0x5a`. If set to "true", both allocated and deallocated memory will be initialized, and if set to "false", junk filling be disabled entirely. This is intended for debugging and will impact performance negatively. This option is "false" by default unless `--enable-debug` is specified during configuration, in which case it is "true" by default.
+
+`opt.zero` (`bool`) `r-` [`--enable-fill`]::
+  Zero filling enabled/disabled. If enabled, each byte of uninitialized allocated memory will be initialized to 0. Note that this initialization only happens once for each byte, so *realloc()* and *rallocx()* calls do not zero memory that was previously allocated. This is intended for debugging and will impact performance negatively. This option is disabled by default.
+
+`opt.utrace` (`bool`) `r-` [`--enable-utrace`]::
+  Allocation tracing based on utrace(2) enabled/disabled. This option is disabled by default.
+
+`opt.xmalloc` (`bool`) `r-` [`--enable-xmalloc`]::
+  Abort-on-out-of-memory enabled/disabled. If enabled, rather than returning failure for any allocation function, display a diagnostic message on `STDERR_FILENO` and cause the program to drop core (using abort(3)). If an application is designed to depend on this behavior, set the option at compile time by including the following in the source code: malloc_conf = "xmalloc:true"; This option is disabled by default.
+
+`opt.tcache` (`bool`) `r-`::
+  Thread-specific caching (tcache) enabled/disabled. When there are multiple threads, each thread uses a tcache for objects up to a certain size. Thread-specific caching allows many allocations to be satisfied without performing any thread synchronization, at the cost of increased memory use. See the <<opt.tcache_max,`opt.tcache_max`>> option for related tuning information. This option is enabled by default.
+
+`opt.tcache_max` (`size_t`) `r-`::
+  Maximum size class to cache in the thread-specific cache (tcache). At a minimum, the first size class is cached; and at a maximum, size classes up to 8 MiB can be cached. The default maximum is 32 KiB (2^15). As a convenience, this may also be set by specifying lg_tcache_max, which will be taken to be the base-2 logarithm of the setting of tcache_max.
+
+`opt.thp` (`const char *`) `r-`::
+  Transparent hugepage (THP) mode. Settings "always", "never" and "default" are available if THP is supported by the operating system. The "always" setting enables transparent hugepage for all user memory mappings with _`MADV_HUGEPAGE`_; "never" ensures no transparent hugepage with _`MADV_NOHUGEPAGE`_; the default setting "default" makes no changes. Note that: this option does not affect THP for jemalloc internal metadata (see <<opt.metadata_thp,`opt.metadata_thp`>>); in addition, for arenas with customized <<arena.i.extent_hooks,`extent_hooks`>>, this option is bypassed as it is implemented as part of the default extent hooks.
+
+`opt.prof` (`bool`) `r-` [`--enable-prof`]::
+  Memory profiling enabled/disabled. If enabled, profile memory allocation activity. See the <<opt.prof_active,`opt.prof_active`>> option for on-the-fly activation/deactivation. See the <<opt.lg_prof_sample,`opt.lg_prof_sample`>> option for probabilistic sampling control. See the <<opt.prof_accum,`opt.prof_accum`>> option for control of cumulative sample reporting. See the <<opt.lg_prof_interval,`opt.lg_prof_interval`>> option for information on interval-triggered profile dumping, the <<opt.prof_gdump,`opt.prof_gdump`>> option for information on high-water-triggered profile dumping, and the <<opt.prof_final,`opt.prof_final`>> option for final profile dumping. Profile output is compatible with the `jeprof` command, which is based on the `pprof` that is developed as part of the link:http://code.google.com/p/gperftools/[gperftools package]. See <<heap_profile_format,HEAP PROFILE FORMAT>> for heap profile format documentation.
+
+`opt.prof_prefix` (`const char *`) `r-` [`--enable-prof`]::
+  Filename prefix for profile dumps. If the prefix is set to the empty string, no automatic dumps will occur; this is primarily useful for disabling the automatic final heap dump (which also disables leak reporting, if enabled). The default prefix is `jeprof`. This prefix value can be overridden by <<prof.prefix,`prof.prefix`>>.
+
+`opt.prof_active` (`bool`) `r-` [`--enable-prof`]::
+  Profiling activated/deactivated. This is a secondary control mechanism that makes it possible to start the application with profiling enabled (see the <<opt.prof,`opt.prof`>> option) but inactive, then toggle profiling at any time during program execution with the <<prof.active,`prof.active`>> mallctl. This option is enabled by default.
+
+`opt.prof_thread_active_init` (`bool`) `r-` [`--enable-prof`]::
+  Initial setting for <<thread.prof.active,`thread.prof.active`>> in newly created threads. The initial setting for newly created threads can also be changed during execution via the <<prof.thread_active_init,`prof.thread_active_init`>> mallctl. This option is enabled by default.
+
+`opt.lg_prof_sample` (`size_t`) `r-` [`--enable-prof`]::
+  Average interval (log base 2) between allocation samples, as measured in bytes of allocation activity. Increasing the sampling interval decreases profile fidelity, but also decreases the computational overhead. The default sample interval is 512 KiB (2^19 B).
+
+`opt.prof_accum` (`bool`) `r-` [`--enable-prof`]::
+  Reporting of cumulative object/byte counts in profile dumps enabled/disabled. If this option is enabled, every unique backtrace must be stored for the duration of execution. Depending on the application, this can impose a large memory overhead, and the cumulative counts are not always of interest. This option is disabled by default.
+
+`opt.prof_pid_namespace` (`bool`) `r-` [`--enable-prof`]::
+  Enable adding the pid namespace to the profile filename. Profiles are dumped to files named according to the pattern `<prefix>.<pid_namespace>.<pid>.<seq>.i<iseq>.heap`, where `<prefix>` is controlled by the <<opt.prof_prefix,`opt.prof_prefix`>> and <<prof.prefix,`prof.prefix`>> options.
+
+`opt.lg_prof_interval` (`ssize_t`) `r-` [`--enable-prof`]::
+  Average interval (log base 2) between memory profile dumps, as measured in bytes of allocation activity. The actual interval between dumps may be sporadic because decentralized allocation counters are used to avoid synchronization bottlenecks. Profiles are dumped to files named according to the pattern `<prefix>.<pid>.<seq>.i<iseq>.heap`, where `<prefix>` is controlled by the <<opt.prof_prefix,`opt.prof_prefix`>> and <<prof.prefix,`prof.prefix`>> options. By default, interval-triggered profile dumping is disabled (encoded as -1).
+
+`opt.prof_gdump` (`bool`) `r-` [`--enable-prof`]::
+  Set the initial state of <<prof.gdump,`prof.gdump`>>, which when enabled triggers a memory profile dump every time the total virtual memory exceeds the previous maximum. This option is disabled by default.
+
+`opt.prof_final` (`bool`) `r-` [`--enable-prof`]::
+  Use an atexit(3) function to dump final memory usage to a file named according to the pattern `<prefix>.<pid>.<seq>.f.heap`, where `<prefix>` is controlled by the <<opt.prof_prefix,`opt.prof_prefix`>> and <<prof.prefix,`prof.prefix`>> options. Note that *atexit()* may allocate memory during application initialization and then deadlock internally when jemalloc in turn calls *atexit()*, so this option is not universally usable (though the application can register its own *atexit()* function with equivalent functionality). This option is disabled by default.
+
+`opt.prof_leak` (`bool`) `r-` [`--enable-prof`]::
+  Leak reporting enabled/disabled. If enabled, use an atexit(3) function to report memory leaks detected by allocation sampling. See the <<opt.prof,`opt.prof`>> option for information on analyzing heap profile output. Works only when combined with <<opt.prof_final,`opt.prof_final` >>, otherwise does nothing. This option is disabled by default.
+
+`opt.prof_leak_error` (`bool`) `r-` [`--enable-prof`]::
+  Similar to <<opt.prof_leak,`opt.prof_leak`>>, but makes the process exit with error code 1 if a memory leak is detected. This option supersedes <<opt.prof_leak,`opt.prof_leak`>>, meaning that if both are specified, this option takes precedence. When enabled, also enables <<opt.prof_leak,`opt.prof_leak`>>. Works only when combined with <<opt.prof_final,`opt.prof_final`>>, otherwise does nothing. This option is disabled by default.
+
+`opt.zero_realloc` (`const char *`) `r-`::
+  Determines the behavior of *realloc()* when passed a value of zero for the new size. "alloc" treats this as an allocation of size zero (and returns a non-null result except in case of resource exhaustion). "free" treats this as a deallocation of the pointer, and returns `NULL` without setting `errno`. "abort" aborts the process if zero is passed. The default is "free" on Linux and Windows, and "alloc" elsewhere.
+  There is considerable divergence of behaviors across implementations in handling this case. Many have the behavior of "free". This can introduce security vulnerabilities, since a `NULL` return value indicates failure, and the continued validity of the passed-in pointer (per POSIX and C11). "alloc" is safe, but can cause leaks in programs that expect the common behavior. Programs intended to be portable and leak-free cannot assume either behavior, and must therefore never call realloc with a size of 0. The "abort" option enables these testing this behavior.
+
+`thread.arena` (`unsigned`) `rw`::
+  Get or set the arena associated with the calling thread. If the specified arena was not initialized beforehand (see the <<arena.i.initialized,`arena.i.initialized`>> mallctl), it will be automatically initialized as a side effect of calling this interface.
+
+`thread.allocated` (`uint64_t`) `r-` [`--enable-stats`]::
+  Get the total number of bytes ever allocated by the calling thread. This counter has the potential to wrap around; it is up to the application to appropriately interpret the counter in such cases.
+
+`thread.allocatedp` (`uint64_t *`) `r-` [`--enable-stats`]::
+  Get a pointer to the the value that is returned by the <<thread.allocated,`thread.allocated`>> mallctl. This is useful for avoiding the overhead of repeated *mallctl*()* calls. Note that the underlying counter should not be modified by the application.
+
+`thread.deallocated` (`uint64_t`) `r-` [`--enable-stats`]::
+  Get the total number of bytes ever deallocated by the calling thread. This counter has the potential to wrap around; it is up to the application to appropriately interpret the counter in such cases.
+
+`thread.deallocatedp` (`uint64_t *`) `r-` [`--enable-stats`]::
+  Get a pointer to the the value that is returned by the <<thread.deallocated,`thread.deallocated`>> mallctl. This is useful for avoiding the overhead of repeated *mallctl*()* calls. Note that the underlying counter should not be modified by the application.
+
+`thread.peak.read` (`uint64_t`) `r-` [`--enable-stats`]::
+  Get an approximation of the maximum value of the difference between the number of bytes allocated and the number of bytes deallocated by the calling thread since the last call to <<thread.peak.reset,`thread.peak.reset`>>, or since the thread's creation if it has not called <<thread.peak.reset,`thread.peak.reset`>>. No guarantees are made about the quality of the approximation, but jemalloc currently endeavors to maintain accuracy to within one hundred kilobytes.
+
+`thread.peak.reset` (`void`) `--` [`--enable-stats`]::
+  Resets the counter for net bytes allocated in the calling thread to zero. This affects subsequent calls to <<thread.peak.read,`thread.peak.read`>>, but not the values returned by <<thread.allocated,`thread.allocated`>> or <<thread.deallocated,`thread.deallocated`>>.
+
+`thread.tcache.enabled` (`bool`) `rw`::
+  Enable/disable calling thread's tcache. The tcache is implicitly flushed as a side effect of becoming disabled (see <<thread.tcache.flush,`thread.tcache.flush`>>).
+
+`thread.tcache.flush` (`void`) `--`::
+  Flush calling thread's thread-specific cache (tcache). This interface releases all cached objects and internal data structures associated with the calling thread's tcache. Ordinarily, this interface need not be called, since automatic periodic incremental garbage collection occurs, and the thread cache is automatically discarded when a thread exits. However, garbage collection is triggered by allocation activity, so it is possible for a thread that stops allocating/deallocating to retain its cache indefinitely, in which case the developer may find manual flushing useful.
+
+`thread.prof.name` (`const char *`) `r-` or `-w` [`--enable-prof`]::
+  Get/set the descriptive name associated with the calling thread in memory profile dumps. An internal copy of the name string is created, so the input string need not be maintained after this interface completes execution. The output string of this interface should be copied for non-ephemeral uses, because multiple implementation details can cause asynchronous string deallocation. Furthermore, each invocation of this interface can only read or write; simultaneous read/write is not supported due to string lifetime limitations. The name string must be nil-terminated and comprised only of characters in the sets recognized by isgraph(3) and isblank(3).
+
+`thread.prof.active` (`bool`) `rw` [`--enable-prof`]::
+  Control whether sampling is currently active for the calling thread. This is an activation mechanism in addition to <<prof.active,`prof.active`>>; both must be active for the calling thread to sample. This flag is enabled by default.
+
+`thread.idle` (`void`) `--`::
+  Hints to jemalloc that the calling thread will be idle for some nontrivial period of time (say, on the order of seconds), and that doing some cleanup operations may be beneficial. There are no guarantees as to what specific operations will be performed; currently this flushes the caller's tcache and may (according to some heuristic) purge its associated arena.
+  This is not intended to be a general-purpose background activity mechanism, and threads should not wake up multiple times solely to call it. Rather, a thread waiting for a task should do a timed wait first, call <<thread.idle,`thread.idle`>> if no task appears in the timeout interval, and then do an untimed wait. For such a background activity mechanism, see <<background_thread,`background_thread`>>.
+
+`tcache.create` (`unsigned`) `r-`::
+  Create an explicit thread-specific cache (tcache) and return an identifier that can be passed to the <<MALLOCX_TCACHE,`MALLOCX_TCACHE(tc)`>> macro to explicitly use the specified cache rather than the automatically managed one that is used by default. Each explicit cache can be used by only one thread at a time; the application must assure that this constraint holds.
+  If the amount of space supplied for storing the thread-specific cache identifier does not equal `sizeof(unsigned)`, no thread-specific cache will be created, no data will be written to the space pointed by _oldp_, and _*oldlenp_ will be set to 0.
+
+`tcache.flush` (`unsigned`) `-w`::
+  Flush the specified thread-specific cache (tcache). The same considerations apply to this interface as to <<thread.tcache.flush,`thread.tcache.flush`>>, except that the tcache will never be automatically discarded.
+
+`tcache.destroy` (`unsigned`) `-w`::
+  Flush the specified thread-specific cache (tcache) and make the identifier available for use during a future tcache creation.
+
+`arena.<i>.initialized` (`bool`) `r-`::
+  Get whether the specified arena's statistics are initialized (i.e. the arena was initialized prior to the current epoch). This interface can also be nominally used to query whether the merged statistics corresponding to `MALLCTL_ARENAS_ALL` are initialized (always true).
+
+`arena.<i>.decay` (`void`) `--`::
+  Trigger decay-based purging of unused dirty/muzzy pages for arena <i>, or for all arenas if <i> equals `MALLCTL_ARENAS_ALL`. The proportion of unused dirty/muzzy pages to be purged depends on the current time; see <<opt.dirty_decay_ms,`opt.dirty_decay_ms`>> and <<opt.muzzy_decay_ms,`opt.muzy_decay_ms`>> for details.
+
+`arena.<i>.purge` (`void`) `--`::
+  Purge all unused dirty pages for arena <i>, or for all arenas if <i> equals `MALLCTL_ARENAS_ALL`.
+
+`arena.<i>.reset` (`void`) `--`::
+  Discard all of the arena's extant allocations. This interface can only be used with arenas explicitly created via <<arenas.create,`arenas.create`>>. None of the arena's discarded/cached allocations may accessed afterward. As part of this requirement, all thread caches which were used to allocate/deallocate in conjunction with the arena must be flushed beforehand.
+
+`arena.<i>.destroy` (`void`) `--`::
+  Destroy the arena. Discard all of the arena's extant allocations using the same mechanism as for <<arena.i.reset,`arena.<i>.reset`>> (with all the same constraints and side effects), merge the arena stats into those accessible at arena index `MALLCTL_ARENAS_DESTROYED`, and then completely discard all metadata associated with the arena. Future calls to <<arenas.create,`arenas.create`>> may recycle the arena index. Destruction will fail if any threads are currently associated with the arena as a result of calls to <<thread.arena,`thread.arena`>>.
+
+`arena.<i>.dss` (`const char *`) `rw`::
+  Set the precedence of dss allocation as related to mmap allocation for arena <i>, or for all arenas if <i> equals `MALLCTL_ARENAS_ALL`. See <<opt.dss,`opt.dss`>> for supported settings.
+
+`arena.<i>.dirty_decay_ms` (`ssize_t`) `rw`::
+  Current per-arena approximate time in milliseconds from the creation of a set of unused dirty pages until an equivalent set of unused dirty pages is purged and/or reused. Each time this interface is set, all currently unused dirty pages are considered to have fully decayed, which causes immediate purging of all unused dirty pages unless the decay time is set to -1 (i.e. purging disabled). See <<opt.dirty_decay_ms,`opt.dirty_decay_ms`>> for additional information.
+
+`arena.<i>.muzzy_decay_ms` (`ssize_t`) `rw`::
+  Current per-arena approximate time in milliseconds from the creation of a set of unused muzzy pages until an equivalent set of unused muzzy pages is purged and/or reused. Each time this interface is set, all currently unused muzzy pages are considered to have fully decayed, which causes immediate purging of all unused muzzy pages unless the decay time is set to -1 (i.e. purging disabled). See <<opt.muzzy_decay_ms,`opt.muzzy_decay_ms`>> for additional information.
+
+`arena.<i>.retain_grow_limit` (`size_t`) `rw`::
+  Maximum size to grow retained region (only relevant when <<opt.retain,`opt.retain`>> is enabled). This controls the maximum increment to expand virtual memory, or allocation through <<arena.i.extent_hooks,`arena.<i>extent_hooks`>>. In particular, if customized extent hooks reserve physical memory (e.g. 1G huge pages), this is useful to control the allocation hook's input size. The default is no limit.
+
+`arena.<i>.extent_hooks` (`extent_hooks_t *`) `rw`::
+  Get or set the extent management hook functions for arena <i>. The functions must be capable of operating on all extant extents associated with arena <i>, usually by passing unknown extents to the replaced functions. In practice, it is feasible to control allocation for arenas explicitly created via <<arenas.create,`arenas.create`>> such that all extents originate from an application-supplied extent allocator (by specifying the custom extent hook functions during arena creation). However, the API guarantees for the automatically created arenas may be relaxed -- hooks set there may be called in a "best effort" fashion; in addition there may be extents created prior to the application having an opportunity to take over extent allocation.
+  The `extent_hooks_t` structure comprises function pointers which are described individually below. jemalloc uses these functions to manage extent lifetime, which starts off with allocation of mapped committed memory, in the simplest case followed by deallocation. However, there are performance and platform reasons to retain extents for later reuse. Cleanup attempts cascade from deallocation to decommit to forced purging to lazy purging, which gives the extent management functions opportunities to reject the most permanent cleanup operations in favor of less permanent (and often less costly) operations. All operations except allocation can be universally opted out of by setting the hook pointers to `NULL`, or selectively opted out of by returning failure. Note that once the extent hook is set, the structure is accessed directly by the associated arenas, so it must remain valid for the entire lifetime of the arenas.
+  An extent allocation function conforms to the `extent_alloc_t` type and upon success returns a pointer to _size_ bytes of mapped memory on behalf of arena _arena_ind_ such that the extent's base address is a multiple of _alignment_, as well as setting _*zero_ to indicate whether the extent is zeroed and _*commit_ to indicate whether the extent is committed. Upon error the function returns `NULL` and leaves _*zero_ and _*commit_ unmodified. The _size_ parameter is always a multiple of the page size. The _alignment_ parameter is always a power of two at least as large as the page size. Zeroing is mandatory if _*zero_ is true upon function entry. Committing is mandatory if _*commit_ is true upon function entry. If _new_addr_ is not `NULL`, the returned pointer must be _new_addr_ on success or `NULL` on error. Committed memory may be committed in absolute terms as on a system that does not overcommit, or in implicit terms as on a system that overcommits and satisfies physical memory needs on demand via soft page faults. Note that replacing the default extent allocation function makes the arena's <<arena.i.dss,`arena.<i>.dss`>> setting irrelevant.
+  An extent deallocation function conforms to the `extent_dalloc_t` type and deallocates an extent at given _addr_ and _size_ with _committed_/decommited memory as indicated, on behalf of arena _arena_ind_, returning false upon success. If the function returns true, this indicates opt-out from deallocation; the virtual memory mapping associated with the extent remains mapped, in the same commit state, and available for future use, in which case it will be automatically retained for later reuse.
+  An extent destruction function conforms to the `extent_destroy_t` type and unconditionally destroys an extent at given _addr_ and _size_ with _committed_/decommited memory as indicated, on behalf of arena _arena_ind_. This function may be called to destroy retained extents during arena destruction (see <<arena.i.destroy,`arena.<i>.destroy`>>).
+  An extent commit function conforms to the `extent_commit_t` type and commits zeroed physical memory to back pages within an extent at given _addr_ and _size_ at _offset_ bytes, extending for _length_ on behalf of arena _arena_ind_, returning false upon success. Committed memory may be committed in absolute terms as on a system that does not overcommit, or in implicit terms as on a system that overcommits and satisfies physical memory needs on demand via soft page faults. If the function returns true, this indicates insufficient physical memory to satisfy the request.
+  An extent decommit function conforms to the `extent_decommit_t` type and decommits any physical memory that is backing pages within an extent at given _addr_ and _size_ at _offset_ bytes, extending for _length_ on behalf of arena _arena_ind_, returning false upon success, in which case the pages will be committed via the extent commit function before being reused. If the function returns true, this indicates opt-out from decommit; the memory remains committed and available for future use, in which case it will be automatically retained for later reuse.
+  An extent purge function conforms to the `extent_purge_t` type and discards physical pages within the virtual memory mapping associated with an extent at given _addr_ and _size_ at _offset_ bytes, extending for _length_ on behalf of arena _arena_ind_. A lazy extent purge function (e.g. implemented via *madvise(_...__`MADV_FREE`_)*) can delay purging indefinitely and leave the pages within the purged virtual memory range in an indeterminite state, whereas a forced extent purge function immediately purges, and the pages within the virtual memory range will be zero-filled the next time they are accessed. If the function returns true, this indicates failure to purge.
+  An extent split function conforms to the `extent_split_t` type and optionally splits an extent at given _addr_ and _size_ into two adjacent extents, the first of _size_a_ bytes, and the second of _size_b_ bytes, operating on _committed_/decommitted memory as indicated, on behalf of arena _arena_ind_, returning false upon success. If the function returns true, this indicates that the extent remains unsplit and therefore should continue to be operated on as a whole.
+  An extent merge function conforms to the `extent_merge_t` type and optionally merges adjacent extents, at given _addr_a_ and _size_a_ with given _addr_b_ and _size_b_ into one contiguous extent, operating on _committed_/decommitted memory as indicated, on behalf of arena _arena_ind_, returning false upon success. If the function returns true, this indicates that the extents remain distinct mappings and therefore should continue to be operated on independently.
+
+`arenas.narenas` (`unsigned`) `r-`::
+  Current limit on number of arenas.
+
+`arenas.dirty_decay_ms` (`ssize_t`) `rw`::
+  Current default per-arena approximate time in milliseconds from the creation of a set of unused dirty pages until an equivalent set of unused dirty pages is purged and/or reused, used to initialize <<arena.i.dirty_decay_ms,`arena.<i>.dirty_decay_ms`>> during arena creation. See <<opt.dirty_decay_ms,`opt.dirty_decay_ms`>> for additional information.
+
+`arenas.muzzy_decay_ms` (`ssize_t`) `rw`::
+  Current default per-arena approximate time in milliseconds from the creation of a set of unused muzzy pages until an equivalent set of unused muzzy pages is purged and/or reused, used to initialize <<arena.i.muzzy_decay_ms,`arena.<i>.muzzy_decay_ms`>> during arena creation. See <<opt.muzzy_decay_ms,`opt.muzzy_decay_ms`>> for additional information.
+
+`arenas.quantum` (`size_t`) `r-`::
+  Quantum size.
+
+`arenas.page` (`size_t`) `r-`::
+  Page size.
+
+`arenas.tcache_max` (`size_t`) `r-`::
+  Maximum thread-cached size class.
+
+`arenas.nbins` (`unsigned`) `r-`::
+  Number of bin size classes.
+
+`arenas.nhbins` (`unsigned`) `r-`::
+  Total number of thread cache bin size classes.
+
+`arenas.bin.<i>.size` (`size_t`) `r-`::
+  Maximum size supported by size class.
+
+`arenas.bin.<i>.nregs` (`uint32_t`) `r-`::
+  Number of regions per slab.
+
+`arenas.bin.<i>.slab_size` (`size_t`) `r-`::
+  Number of bytes per slab.
+
+`arenas.nlextents` (`unsigned`) `r-`::
+  Total number of large size classes.
+
+`arenas.lextent.<i>.size` (`size_t`) `r-`::
+  Maximum size supported by this large size class.
+
+`arenas.create` (`unsigned`, `extent_hooks_t *`) `rw`::
+  Explicitly create a new arena outside the range of automatically managed arenas, with optionally specified extent hooks, and return the new arena index.
+  If the amount of space supplied for storing the arena index does not equal `sizeof(unsigned)`, no arena will be created, no data will be written to the space pointed by _oldp_, and _*oldlenp_ will be set to 0.
+
+`arenas.lookup` (`unsigned`, `void*`) `rw`::
+  Index of the arena to which an allocation belongs to.
+
+`prof.thread_active_init` (`bool`) `rw` [`--enable-prof`]::
+  Control the initial setting for <<thread.prof.active,`thread.prof.active`>> in newly created threads. See the <<opt.prof_thread_active_init,`opt.prof_thread_active_init`>> option for additional information.
+
+`prof.active` (`bool`) `rw` [`--enable-prof`]::
+  Control whether sampling is currently active. See the <<opt.prof_active,`opt.prof_active`>> option for additional information, as well as the interrelated <<thread.prof.active,`thread.prof.active`>> mallctl.
+
+`prof.dump` (`const char *`) `-w` [`--enable-prof`]::
+  Dump a memory profile to the specified file, or if NULL is specified, to a file according to the pattern `<prefix>.<pid>.<seq>.m<mseq>.heap`, where `<prefix>` is controlled by the <<opt.prof_prefix,`opt.prof_prefix`>> and <<prof.prefix,`prof.prefix`>> options.
+
+`prof.prefix` (`const char *`) `-w` [`--enable-prof`]::
+  Set the filename prefix for profile dumps. See <<opt.prof_prefix,`opt.prof_prefix`>> for the default setting. This can be useful to differentiate profile dumps such as from forked processes.
+
+`prof.gdump` (`bool`) `rw` [`--enable-prof`]::
+  When enabled, trigger a memory profile dump every time the total virtual memory exceeds the previous maximum. Profiles are dumped to files named according to the pattern `<prefix>.<pid>.<seq>.u<useq>.heap`, where `<prefix>` is controlled by the <<opt.prof_prefix,`opt.prof_prefix`>> and <<prof.prefix,`prof.prefix`>> options.
+
+`prof.reset` (`size_t`) `-w` [`--enable-prof`]::
+  Reset all memory profile statistics, and optionally update the sample rate (see <<opt.lg_prof_sample,`opt.lg_prof_sample`>> and <<prof.lg_sample,`prof.lg_sample`>>).
+
+`prof.lg_sample` (`size_t`) `r-` [`--enable-prof`]::
+  Get the current sample rate (see <<opt.lg_prof_sample,`opt.lg_prof_sample`>>).
+
+`prof.interval` (`uint64_t`) `r-` [`--enable-prof`]::
+  Average number of bytes allocated between interval-based profile dumps. See the <<opt.lg_prof_interval,`opt.lg_prof_interval`>> option for additional information.
+
+`stats.allocated` (`size_t`) `r-` [`--enable-stats`]::
+  Total number of bytes allocated by the application.
+
+`stats.active` (`size_t`) `r-` [`--enable-stats`]::
+  Total number of bytes in active pages allocated by the application. This is a multiple of the page size, and greater than or equal to <<stats.allocated,`stats.allocated`>>. This does not include <<stats.arenas.i.pdirty, `stats.arenas.<i>.pdirty`>>, <<stats.arenas.i.pmuzzy, `stats.arenas.<i>.pmuzzy`>>, nor pages entirely devoted to allocator metadata.
+
+`stats.metadata` (`size_t`) `r-` [`--enable-stats`]::
+  Total number of bytes dedicated to metadata, which comprise base allocations used for bootstrap-sensitive allocator metadata structures (see <<stats.arenas.i.base,`stats.arenas.<i>.base`>>) and internal allocations (see <<stats.arenas.i.internal,`stats.arenas.<i>.internal`>>). Transparent huge page (enabled with <<opt.metadata_thp,opt.metadata_thp>>) usage is not considered.
+
+`stats.metadata_thp` (`size_t`) `r-` [`--enable-stats`]::
+  Number of transparent huge pages (THP) used for metadata. See <<stats.metadata,`stats.metadata`>> and <<opt.metadata_thp,opt.metadata_thp>>) for details.
+
+`stats.resident` (`size_t`) `r-` [`--enable-stats`]::
+  Maximum number of bytes in physically resident data pages mapped by the allocator, comprising all pages dedicated to allocator metadata, pages backing active allocations, and unused dirty pages. This is a maximum rather than precise because pages may not actually be physically resident if they correspond to demand-zeroed virtual memory that has not yet been touched. This is a multiple of the page size, and is larger than <<stats.active,`stats.active`>>.
+
+`stats.mapped` (`size_t`) `r-` [`--enable-stats`]::
+  Total number of bytes in active extents mapped by the allocator. This is larger than <<stats.active,`stats.active`>>. This does not include inactive extents, even those that contain unused dirty pages, which means that there is no strict ordering between this and <<stats.resident,`stats.resident`>>.
+
+`stats.retained` (`size_t`) `r-` [`--enable-stats`]::
+  Total number of bytes in virtual memory mappings that were retained rather than being returned to the operating system via e.g. munmap(2) or similar. Retained virtual memory is typically untouched, decommitted, or purged, so it has no strongly associated physical memory (see <<arena.i.extent_hooks,extent hooks>> for details). Retained memory is excluded from mapped memory statistics, e.g. <<stats.mapped,`stats.mapped`>>.
+
+`stats.zero_reallocs` (`size_t`) `r-` [`--enable-stats`]::
+  Number of times that the *realloc()* was called with a non-`NULL` pointer argument and a `0` size argument. This is a fundamentally unsafe pattern in portable programs; see <<opt.zero_realloc, `opt.zero_realloc`>> for details.
+
+`stats.background_thread.num_threads` (`size_t`) `r-` [`--enable-stats`]::
+  Number of <<background_thread,background threads>> running currently.
+
+`stats.background_thread.num_runs` (`uint64_t`) `r-` [`--enable-stats`]::
+  Total number of runs from all <<background_thread,background threads>>.
+
+`stats.background_thread.run_interval` (`uint64_t`) `r-` [`--enable-stats`]::
+  Average run interval in nanoseconds of <<background_thread,background threads>>.
+
+`stats.mutexes.ctl.{counter};` (`counter specific type`) `r-` [`--enable-stats`]::
+  Statistics on `ctl` mutex (global scope; mallctl related). `{counter}` is one of the counters below:
+  `num_ops` (`uint64_t`): Total number of lock acquisition operations on this mutex.
+  `num_spin_acq` (`uint64_t`): Number of times the mutex was spin-acquired. When the mutex is currently locked and cannot be acquired immediately, a short period of spin-retry within jemalloc will be performed. Acquired through spin generally means the contention was lightweight and not causing context switches.
+  `num_wait` (`uint64_t`): Number of times the mutex was wait-acquired, which means the mutex contention was not solved by spin-retry, and blocking operation was likely involved in order to acquire the mutex. This event generally implies higher cost / longer delay, and should be investigated if it happens often.
+  `max_wait_time` (`uint64_t`): Maximum length of time in nanoseconds spent on a single wait-acquired lock operation. Note that to avoid profiling overhead on the common path, this does not consider spin-acquired cases.
+  `total_wait_time` (`uint64_t`): Cumulative time in nanoseconds spent on wait-acquired lock operations. Similarly, spin-acquired cases are not considered.
+  `max_num_thds` (`uint32_t`): Maximum number of threads waiting on this mutex simultaneously. Similarly, spin-acquired cases are not considered.
+  `num_owner_switch` (`uint64_t`): Number of times the current mutex owner is different from the previous one. This event does not generally imply an issue; rather it is an indicator of how often the protected data are accessed by different threads.
+
+`stats.mutexes.background_thread.{counter}` (`counter specific type`) `r-` [`--enable-stats`]::
+  Statistics on `background_thread` mutex (global scope; <<background_thread,`background_thread`>> related). `{counter}` is one of the counters in <<mutex_counters,mutex profiling counters>>.
+
+`stats.mutexes.prof.{counter}` (`counter specific type`) `r-` [`--enable-stats`]::
+  Statistics on `prof` mutex (global scope; profiling related). `{counter}` is one of the counters in <<mutex_counters,mutex profiling counters>>.
+
+`stats.mutexes.prof_thds_data.{counter}` (`counter specific type`) `r-` [`--enable-stats`]::
+  Statistics on `prof` threads data mutex (global scope; profiling related). `{counter}` is one of the counters in <<mutex_counters,mutex profiling counters>>.
+
+`stats.mutexes.prof_dump.{counter}` (`counter specific type`) `r-` [`--enable-stats`]::
+  Statistics on `prof` dumping mutex (global scope; profiling related). `{counter}` is one of the counters in <<mutex_counters,mutex profiling counters>>.
+
+`stats.mutexes.reset` (`void`) `--` [`--enable-stats`]::
+  Reset all mutex profile statistics, including global mutexes, arena mutexes and bin mutexes.
+
+`stats.arenas.<i>.dss` (`const char *`) `r-`::
+  dss (sbrk(2)) allocation precedence as related to mmap(2) allocation. See <<opt.dss,`opt.dss`>> for details.
+
+`stats.arenas.<i>.dirty_decay_ms` (`ssize_t`) `r-`::
+  Approximate time in milliseconds from the creation of a set of unused dirty pages until an equivalent set of unused dirty pages is purged and/or reused. See <<opt.dirty_decay_ms,`opt.dirty_decay_ms`>> for details.
+
+`stats.arenas.<i>.muzzy_decay_ms` (`ssize_t`) `r-`::
+  Approximate time in milliseconds from the creation of a set of unused muzzy pages until an equivalent set of unused muzzy pages is purged and/or reused. See <<opt.muzzy_decay_ms,`opt.muzzy_decay_ms`>> for details.
+
+`stats.arenas.<i>.nthreads` (`unsigned`) `r-`::
+  Number of threads currently assigned to arena.
+
+`stats.arenas.<i>.uptime` (`uint64_t`) `r-`::
+  Time elapsed (in nanoseconds) since the arena was created. If <i> equals `0` or `MALLCTL_ARENAS_ALL`, this is the uptime since malloc initialization.
+
+`stats.arenas.<i>.pactive` (`size_t`) `r-`::
+  Number of pages in active extents.
+
+`stats.arenas.<i>.pdirty` (`size_t`) `r-`::
+  Number of pages within unused extents that are potentially dirty, and for which *madvise()* or similar has not been called. See <<opt.dirty_decay_ms,`opt.dirty_decay_ms`>> for a description of dirty pages.
+
+`stats.arenas.<i>.pmuzzy` (`size_t`) `r-`::
+  Number of pages within unused extents that are muzzy. See <<opt.muzzy_decay_ms,`opt.muzzy_decay_ms`>> for a description of muzzy pages.
+
+`stats.arenas.<i>.mapped` (`size_t`) `r-` [`--enable-stats`]::
+  Number of mapped bytes.
+
+`stats.arenas.<i>.retained` (`size_t`) `r-` [`--enable-stats`]::
+  Number of retained bytes. See <<stats.retained,`stats.retained`>> for details.
+
+`stats.arenas.<i>.extent_avail` (`size_t`) `r-` [`--enable-stats`]::
+  Number of allocated (but unused) extent structs in this arena.
+
+`stats.arenas.<i>.base` (`size_t`) `r-` [`--enable-stats`]::
+  Number of bytes dedicated to bootstrap-sensitive allocator metadata structures.
+
+`stats.arenas.<i>.internal` (`size_t`) `r-` [`--enable-stats`]::
+  Number of bytes dedicated to internal allocations. Internal allocations differ from application-originated allocations in that they are for internal use, and that they are omitted from heap profiles.
+
+`stats.arenas.<i>.metadata_thp` (`size_t`) `r-` [`--enable-stats`]::
+  Number of transparent huge pages (THP) used for metadata. See <<opt.metadata_thp,opt.metadata_thp>> for details.
+
+`stats.arenas.<i>.resident` (`size_t`) `r-` [`--enable-stats`]::
+  Maximum number of bytes in physically resident data pages mapped by the arena, comprising all pages dedicated to allocator metadata, pages backing active allocations, and unused dirty pages. This is a maximum rather than precise because pages may not actually be physically resident if they correspond to demand-zeroed virtual memory that has not yet been touched. This is a multiple of the page size.
+
+`stats.arenas.<i>.dirty_npurge` (`uint64_t`) `r-` [`--enable-stats`]::
+  Number of dirty page purge sweeps performed.
+
+`stats.arenas.<i>.dirty_nmadvise` (`uint64_t`) `r-` [`--enable-stats`]::
+  Number of *madvise()* or similar calls made to purge dirty pages.
+
+`stats.arenas.<i>.dirty_purged` (`uint64_t`) `r-` [`--enable-stats`]::
+  Number of dirty pages purged.
+
+`stats.arenas.<i>.muzzy_npurge` (`uint64_t`) `r-` [`--enable-stats`]::
+  Number of muzzy page purge sweeps performed.
+
+`stats.arenas.<i>.muzzy_nmadvise` (`uint64_t`) `r-` [`--enable-stats`]::
+  Number of *madvise()* or similar calls made to purge muzzy pages.
+
+`stats.arenas.<i>.muzzy_purged` (`uint64_t`) `r-` [`--enable-stats`]::
+  Number of muzzy pages purged.
+
+`stats.arenas.<i>.small.allocated` (`size_t`) `r-` [`--enable-stats`]::
+  Number of bytes currently allocated by small objects.
+
+`stats.arenas.<i>.small.nmalloc` (`uint64_t`) `r-` [`--enable-stats`]::
+  Cumulative number of times a small allocation was requested from the arena's bins, whether to fill the relevant tcache if <<opt.tcache,`opt.tcache`>> is enabled, or to directly satisfy an allocation request otherwise.
+
+`stats.arenas.<i>.small.ndalloc` (`uint64_t`) `r-` [`--enable-stats`]::
+  Cumulative number of times a small allocation was returned to the arena's bins, whether to flush the relevant tcache if <<opt.tcache,`opt.tcache`>> is enabled, or to directly deallocate an allocation otherwise.
+
+`stats.arenas.<i>.small.nrequests` (`uint64_t`) `r-` [`--enable-stats`]::
+  Cumulative number of allocation requests satisfied by all bin size classes.
+
+`stats.arenas.<i>.small.nfills` (`uint64_t`) `r-` [`--enable-stats`]::
+  Cumulative number of tcache fills by all small size classes.
+
+`stats.arenas.<i>.small.nflushes` (`uint64_t`) `r-` [`--enable-stats`]::
+  Cumulative number of tcache flushes by all small size classes.
+
+`stats.arenas.<i>.large.allocated` (`size_t`) `r-` [`--enable-stats`]::
+  Number of bytes currently allocated by large objects.
+
+`stats.arenas.<i>.large.nmalloc` (`uint64_t`) `r-` [`--enable-stats`]::
+  Cumulative number of times a large extent was allocated from the arena, whether to fill the relevant tcache if <<opt.tcache,`opt.tcache`>> is enabled and the size class is within the range being cached, or to directly satisfy an allocation request otherwise.
+
+`stats.arenas.<i>.large.ndalloc` (`uint64_t`) `r-` [`--enable-stats`]::
+  Cumulative number of times a large extent was returned to the arena, whether to flush the relevant tcache if <<opt.tcache,`opt.tcache`>> is enabled and the size class is within the range being cached, or to directly deallocate an allocation otherwise.
+
+`stats.arenas.<i>.large.nrequests` (`uint64_t`) `r-` [`--enable-stats`]::
+  Cumulative number of allocation requests satisfied by all large size classes.
+
+`stats.arenas.<i>.large.nfills` (`uint64_t`) `r-` [`--enable-stats`]::
+  Cumulative number of tcache fills by all large size classes.
+
+`stats.arenas.<i>.large.nflushes` (`uint64_t`) `r-` [`--enable-stats`]::
+  Cumulative number of tcache flushes by all large size classes.
+
+`stats.arenas.<i>.bins.<j>.nmalloc` (`uint64_t`) `r-` [`--enable-stats`]::
+  Cumulative number of times a bin region of the corresponding size class was allocated from the arena, whether to fill the relevant tcache if <<opt.tcache,`opt.tcache`>> is enabled, or to directly satisfy an allocation request otherwise.
+
+`stats.arenas.<i>.bins.<j>.ndalloc` (`uint64_t`) `r-` [`--enable-stats`]::
+  Cumulative number of times a bin region of the corresponding size class was returned to the arena, whether to flush the relevant tcache if <<opt.tcache,`opt.tcache`>> is enabled, or to directly deallocate an allocation otherwise.
+
+`stats.arenas.<i>.bins.<j>.nrequests` (`uint64_t`) `r-` [`--enable-stats`]::
+  Cumulative number of allocation requests satisfied by bin regions of the corresponding size class.
+
+`stats.arenas.<i>.bins.<j>.curregs` (`size_t`) `r-` [`--enable-stats`]::
+  Current number of regions for this size class.
+
+`stats.arenas.<i>.bins.<j>.nfills` (`uint64_t`) `r-`::
+  Cumulative number of tcache fills.
+
+`stats.arenas.<i>.bins.<j>.nflushes` (`uint64_t`) `r-`::
+  Cumulative number of tcache flushes.
+
+`stats.arenas.<i>.bins.<j>.nslabs` (`uint64_t`) `r-` [`--enable-stats`]::
+  Cumulative number of slabs created.
+
+`stats.arenas.<i>.bins.<j>.nreslabs` (`uint64_t`) `r-` [`--enable-stats`]::
+  Cumulative number of times the current slab from which to allocate changed.
+
+`stats.arenas.<i>.bins.<j>.curslabs` (`size_t`) `r-` [`--enable-stats`]::
+  Current number of slabs.
+
+`stats.arenas.<i>.bins.<j>.nonfull_slabs` (`size_t`) `r-` [`--enable-stats`]::
+  Current number of nonfull slabs.
+
+`stats.arenas.<i>.bins.<j>.mutex.{counter}` (`counter specific type`) `r-` [`--enable-stats`]::
+  Statistics on `arena.<i>.bins.<j>` mutex (arena bin scope; bin operation related). `{counter}` is one of the counters in <<mutex_counters,mutex profiling counters>>.
+
+`stats.arenas.<i>.extents.<j>.n{extent_type}` (`size_t`) `r-` [`--enable-stats`]::
+  Number of extents of the given type in this arena in the bucket corresponding to page size index <j>. The extent type is one of dirty, muzzy, or retained.
+
+`stats.arenas.<i>.extents.<j>.{extent_type}_bytes` (`size_t`) `r-` [`--enable-stats`]::
+  Sum of the bytes managed by extents of the given type in this arena in the bucket corresponding to page size index <j>. The extent type is one of dirty, muzzy, or retained.
+
+`stats.arenas.<i>.lextents.<j>.nmalloc` (`uint64_t`) `r-` [`--enable-stats`]::
+  Cumulative number of times a large extent of the corresponding size class was allocated from the arena, whether to fill the relevant tcache if <<opt.tcache,`opt.tcache`>> is enabled and the size class is within the range being cached, or to directly satisfy an allocation request otherwise.
+
+`stats.arenas.<i>.lextents.<j>.ndalloc` (`uint64_t`) `r-` [`--enable-stats`]::
+  Cumulative number of times a large extent of the corresponding size class was returned to the arena, whether to flush the relevant tcache if <<opt.tcache,`opt.tcache`>> is enabled and the size class is within the range being cached, or to directly deallocate an allocation otherwise.
+
+`stats.arenas.<i>.lextents.<j>.nrequests` (`uint64_t`) `r-` [`--enable-stats`]::
+  Cumulative number of allocation requests satisfied by large extents of the corresponding size class.
+
+`stats.arenas.<i>.lextents.<j>.curlextents` (`size_t`) `r-` [`--enable-stats`]::
+  Current number of large allocations for this size class.
+
+`stats.arenas.<i>.mutexes.large.{counter}` (`counter specific type`) `r-` [`--enable-stats`]::
+  Statistics on `arena.<i>.large` mutex (arena scope; large allocation related). `{counter}` is one of the counters in <<mutex_counters,mutex profiling counters>>.
+
+`stats.arenas.<i>.mutexes.extent_avail.{counter}` (`counter specific type`) `r-` [`--enable-stats`]::
+  Statistics on `arena.<i>.extent_avail` mutex (arena scope; extent avail related). `{counter}` is one of the counters in <<mutex_counters,mutex profiling counters>>.
+
+`stats.arenas.<i>.mutexes.extents_dirty.{counter}` (`counter specific type`) `r-` [`--enable-stats`]::
+  Statistics on `arena.<i>.extents_dirty` mutex (arena scope; dirty extents related). `{counter}` is one of the counters in <<mutex_counters,mutex profiling counters>>.
+
+`stats.arenas.<i>.mutexes.extents_muzzy.{counter}` (`counter specific type`) `r-` [`--enable-stats`]::
+  Statistics on `arena.<i>.extents_muzzy` mutex (arena scope; muzzy extents related). `{counter}` is one of the counters in <<mutex_counters,mutex profiling counters>>.
+
+`stats.arenas.<i>.mutexes.extents_retained.{counter}` (`counter specific type`) `r-` [`--enable-stats`]::
+  Statistics on `arena.<i>.extents_retained` mutex (arena scope; retained extents related). `{counter}` is one of the counters in <<mutex_counters,mutex profiling counters>>.
+
+`stats.arenas.<i>.mutexes.decay_dirty.{counter}` (`counter specific type`) `r-` [`--enable-stats`]::
+  Statistics on `arena.<i>.decay_dirty` mutex (arena scope; decay for dirty pages related). `{counter}` is one of the counters in <<mutex_counters,mutex profiling counters>>.
+
+`stats.arenas.<i>.mutexes.decay_muzzy.{counter}` (`counter specific type`) `r-` [`--enable-stats`]::
+  Statistics on `arena.<i>.decay_muzzy` mutex (arena scope; decay for muzzy pages related). `{counter}` is one of the counters in <<mutex_counters,mutex profiling counters>>.
+
+`stats.arenas.<i>.mutexes.base.{counter}` (`counter specific type`) `r-` [`--enable-stats`]::
+  Statistics on `arena.<i>.base` mutex (arena scope; base allocator related). `{counter}` is one of the counters in <<mutex_counters,mutex profiling counters>>.
+
+`stats.arenas.<i>.mutexes.tcache_list.{counter}` (`counter specific type`) `r-` [`--enable-stats`]::
+  Statistics on `arena.<i>.tcache_list` mutex (arena scope; tcache to arena association related). This mutex is expected to be accessed less often. `{counter}` is one of the counters in <<mutex_counters,mutex profiling counters>>.

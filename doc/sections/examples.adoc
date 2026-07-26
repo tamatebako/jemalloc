@@ -1,0 +1,15 @@
+== EXAMPLES
+
+To dump core whenever a problem occurs:
+
+[source,c]
+----
+ln -s 'abort:true' /etc/malloc.conf
+----
+
+To specify in the source that only one arena should be automatically created:
+
+[source,c]
+----
+malloc_conf = "narenas:1";
+----

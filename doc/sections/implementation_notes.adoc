@@ -1,0 +1,48 @@
+== IMPLEMENTATION NOTES
+
+Traditionally, allocators have used sbrk(2) to obtain memory, which is suboptimal for several reasons, including race conditions, increased fragmentation, and artificial limitations on maximum usable memory. If sbrk(2) is supported by the operating system, this allocator uses both mmap(2) and sbrk(2), in that order of preference; otherwise only mmap(2) is used.
+
+This allocator uses multiple arenas in order to reduce lock contention for threaded programs on multi-processor systems. This works well with regard to threading scalability, but incurs some costs. There is a small fixed per-arena overhead, and additionally, arenas manage memory completely independently of each other, which means a small fixed increase in overall memory fragmentation. These overheads are not generally an issue, given the number of arenas normally used. Note that using substantially more arenas than the default is not likely to improve performance, mainly due to reduced cache performance. However, it may make sense to reduce the number of arenas if an application does not make much use of the allocation functions.
+
+In addition to multiple arenas, this allocator supports thread-specific caching, in order to make it possible to completely avoid synchronization for most allocation requests. Such caching allows very fast allocation in the common case, but it increases memory usage and fragmentation, since a bounded number of objects can remain allocated in each thread cache.
+
+Memory is conceptually broken into extents. Extents are always aligned to multiples of the page size. This alignment makes it possible to find metadata for user objects quickly. User objects are broken into two categories according to size: small and large. Contiguous small objects comprise a slab, which resides within a single extent, whereas large objects each have their own extents backing them.
+
+Small objects are managed in groups by slabs. Each slab maintains a bitmap to track which regions are in use. Allocation requests that are no more than half the quantum (8 or 16, depending on architecture) are rounded up to the nearest power of two that is at least `sizeof(double)`. All other object size classes are multiples of the quantum, spaced such that there are four size classes for each doubling in size, which limits internal fragmentation to approximately 20% for all but the smallest size classes. Small size classes are smaller than four times the page size, and large size classes extend from four times the page size up to the largest size class that does not exceed `PTRDIFF_MAX`.
+
+Allocations are packed tightly together, which can be an issue for multi-threaded applications. If you need to assure that allocations do not suffer from cacheline sharing, round your allocation requests up to the nearest multiple of the cacheline size, or specify cacheline alignment when allocating.
+
+The *realloc()*, *rallocx()*, and *xallocx()* functions may resize allocations without moving them under limited circumstances. Unlike the **allocx()* API, the standard API does not officially round up the usable size of an allocation to the nearest size class, so technically it is necessary to call *realloc()* to grow e.g. a 9-byte allocation to 16 bytes, or shrink a 16-byte allocation to 9 bytes. Growth and shrinkage trivially succeeds in place as long as the pre-size and post-size both round up to the same size class. No other API guarantees are made regarding in-place resizing, but the current implementation also tries to resize large allocations in place, as long as the pre-size and post-size are both large. For shrinkage to succeed, the extent allocator must support splitting (see <<arena.i.extent_hooks,`arena.<i>.extent_hooks`>>). Growth only succeeds if the trailing memory is currently available, and the extent allocator supports merging.
+
+Assuming 4 KiB pages and a 16-byte quantum on a 64-bit system, the size classes in each category are as shown in <<size_classes>>.
+
+.Size classes
+[cols="3",options="header"]
+|===
+| Category | Spacing | Size
+.9+| Small | lg | [8]
+| 16 | [16, 32, 48, 64, 80, 96, 112, 128]
+| 32 | [160, 192, 224, 256]
+| 64 | [320, 384, 448, 512]
+| 128 | [640, 768, 896, 1024]
+| 256 | [1280, 1536, 1792, 2048]
+| 512 | [2560, 3072, 3584, 4096]
+| 1 KiB | [5 KiB, 6 KiB, 7 KiB, 8 KiB]
+| 2 KiB | [10 KiB, 12 KiB, 14 KiB]
+.16+| Large | 2 KiB | [16 KiB]
+| 4 KiB | [20 KiB, 24 KiB, 28 KiB, 32 KiB]
+| 8 KiB | [40 KiB, 48 KiB, 56 KiB, 64 KiB]
+| 16 KiB | [80 KiB, 96 KiB, 112 KiB, 128 KiB]
+| 32 KiB | [160 KiB, 192 KiB, 224 KiB, 256 KiB]
+| 64 KiB | [320 KiB, 384 KiB, 448 KiB, 512 KiB]
+| 128 KiB | [640 KiB, 768 KiB, 896 KiB, 1 MiB]
+| 256 KiB | [1280 KiB, 1536 KiB, 1792 KiB, 2 MiB]
+| 512 KiB | [2560 KiB, 3 MiB, 3584 KiB, 4 MiB]
+| 1 MiB | [5 MiB, 6 MiB, 7 MiB, 8 MiB]
+| 2 MiB | [10 MiB, 12 MiB, 14 MiB, 16 MiB]
+| 4 MiB | [20 MiB, 24 MiB, 28 MiB, 32 MiB]
+| 8 MiB | [40 MiB, 48 MiB, 56 MiB, 64 MiB]
+| ... | ...
+| 512 PiB | [2560 PiB, 3 EiB, 3584 PiB, 4 EiB]
+| 1 EiB | [5 EiB, 6 EiB, 7 EiB]
+|===

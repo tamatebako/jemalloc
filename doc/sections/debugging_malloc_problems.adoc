@@ -1,0 +1,7 @@
+== DEBUGGING MALLOC PROBLEMS
+
+When debugging, it is a good idea to configure/build jemalloc with the `--enable-debug` and `--enable-fill` options, and recompile the program with suitable options and symbols for debugger support. When so configured, jemalloc incorporates a wide variety of run-time assertions that catch application errors such as double-free, write-after-free, etc.
+
+Programs often accidentally depend on "uninitialized" memory actually being filled with zero bytes. Junk filling (see the <<opt.junk,`opt.junk`>> option) tends to expose such bugs in the form of obviously incorrect results and/or coredumps. Conversely, zero filling (see the <<opt.zero,`opt.zero`>> option) eliminates the symptoms of such bugs. Between these two options, it is usually possible to quickly detect, diagnose, and eliminate such bugs.
+
+This implementation does not provide much detail about the problems it detects, because the performance impact for storing such information would be prohibitive.

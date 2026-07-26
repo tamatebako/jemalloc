@@ -1,0 +1,36 @@
+= JEMALLOC(3)
+:doctype: manpage
+:man manual: User Manual
+:man source: jemalloc @jemalloc_version@
+
+
+include::sections/name.adoc[]
+
+include::sections/synopsis.adoc[]
+
+include::sections/description.adoc[]
+
+include::sections/tuning.adoc[]
+
+include::sections/delayed_memory_return.adoc[]
+
+include::sections/implementation_notes.adoc[]
+
+include::sections/mallctl_namespace.adoc[]
+
+include::sections/heap_profile_format.adoc[]
+
+include::sections/debugging_malloc_problems.adoc[]
+
+include::sections/diagnostic_messages.adoc[]
+
+include::sections/return_values.adoc[]
+
+include::sections/environment.adoc[]
+
+include::sections/examples.adoc[]
+
+include::sections/see_also.adoc[]
+
+include::sections/standards.adoc[]
+

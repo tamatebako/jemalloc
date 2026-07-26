@@ -1,0 +1,11 @@
+== DELAYED MEMORY RETURN
+
+Some jemalloc behavior delays the return of *free()*d memory to the operating system. This is an optimization to increase allocator speed (since if the application needs memory again soon after, the system calls to return it to the OS and to re-request it can be skipped). It comes at the the cost of retaining system memory, which is then not available to other processes.
+
+This can lead to out-of-memory crashes: For example, if the program completes a task that needed 70% of the machine's memory, frees it (with delayed return), and then invokes a child process that also needs 70% of memory, the total consumption is 140% of the machine's memory. The operating system did not observe the program returning the memory, so it could not allocate it to the child process.
+
+Delayed memory return is controlled by the option <<opt.dirty_decay_ms,`opt.dirty_decay_ms`>> which is enabled by default.
+
+Be aware that decay times > 0 will not be honored until the next relevant call into jemalloc, unless you also enable <<background_thread,`background_thread`>>. Without <<background_thread,`background_thread`>>, processes that are sleeping (e.g. because they call *sleep()*, block on user input, network/file activity, or run subprocesses) will not purge memory after the configured time, but at a potentially much later time (seconds or hours or months, depending on how long the program blocks).
+
+It is thus recommended that if your program uses and frees significant amounts of memory that other processes (including its own child processes) may subsequently need, you should either set <<opt.dirty_decay_ms,`opt.dirty_decay_ms`>> to "0" if you need guarantees that the freed memory will be immediately available to them, or that you enable <<background_thread,`background_thread`>> if you desire a delay that will be approximately honored. Alternatively, a performance tradeoff in between is to set <<opt.dirty_decay_ms,`opt.dirty_decay_ms`>> to "0" and enable <<opt.muzzy_decay_ms,`opt.muzzy_decay_ms`>> (on platforms where it is supported); this will make freed memory available immediately available to other processes with lower overheads, but may negatively affect observability as documented for that option.

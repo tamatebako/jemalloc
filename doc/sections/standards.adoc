@@ -1,0 +1,6 @@
+== STANDARDS
+
+The *malloc()*, *calloc()*, *realloc()*, and *free()* functions conform to ISO/IEC 9899:1990 ("ISO C90").
+
+The *posix_memalign()* function conforms to IEEE Std 1003.1-2001 ("POSIX.1").
+

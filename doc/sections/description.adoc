@@ -1,0 +1,88 @@
+== DESCRIPTION
+
+=== STANDARD API
+
+The *malloc()* function allocates _size_ bytes of uninitialized memory. The allocated space is suitably aligned (after possible pointer coercion) for storage of any type of object.
+
+The *calloc()* function allocates space for _number_ objects, each _size_ bytes in length. The result is identical to calling *malloc()* with an argument of _number_ * _size_, with the exception that the allocated memory is explicitly initialized to zero bytes.
+
+The *posix_memalign()* function allocates _size_ bytes of memory such that the allocation's base address is a multiple of _alignment_, and returns the allocation in the value pointed to by _ptr_. The requested _alignment_ must be a power of 2 at least as large as `sizeof(void *)`.
+
+The *aligned_alloc()* function allocates _size_ bytes of memory such that the allocation's base address is a multiple of _alignment_. The requested _alignment_ must be a power of 2. Behavior is undefined if _size_ is not an integral multiple of _alignment_.
+
+The *realloc()* function changes the size of the previously allocated memory referenced by _ptr_ to _size_ bytes. The contents of the memory are unchanged up to the lesser of the new and old sizes. If the new size is larger, the contents of the newly allocated portion of the memory are undefined. Upon success, the memory referenced by _ptr_ is freed and a pointer to the newly allocated memory is returned. Note that *realloc()* may move the memory allocation, resulting in a different return value than _ptr_. If _ptr_ is `NULL`, the *realloc()* function behaves identically to *malloc()* for the specified size.
+
+The *free()* function causes the allocated memory referenced by _ptr_ to be made available for future allocations. If _ptr_ is `NULL`, no action occurs.
+
+The *free_sized()* function is an extension of *free()* with a _size_ parameter to allow the caller to pass in the allocation size as an optimization.
+
+The *free_aligned_sized()* function accepts a _ptr_ which was allocated with a requested _size_ and _alignment_, causing the allocated memory referenced by _ptr_ to be made available for future allocations.
+
+=== NON-STANDARD API
+
+The *mallocx()*, *rallocx()*, *xallocx()*, *sallocx()*, *dallocx()*, *sdallocx()*, and *nallocx()* functions all have a _flags_ argument that can be used to specify options. The functions only check the options that are contextually relevant. Use bitwise or (`|`) operations to specify one or more of the following:
+
+`MALLOCX_LG_ALIGN(la)`::
+  Align the memory allocation to start at an address that is a multiple of `(1 << la)`. This macro does not validate that _la_ is within the valid range.
+
+`MALLOCX_ALIGN(a)`::
+  Align the memory allocation to start at an address that is a multiple of _a_, where _a_ is a power of two. This macro does not validate that _a_ is a power of 2.
+
+`MALLOCX_ZERO`::
+  Initialize newly allocated memory to contain zero bytes. In the growing reallocation case, the real size prior to reallocation defines the boundary between untouched bytes and those that are initialized to contain zero bytes. If this macro is absent, newly allocated memory is uninitialized.
+
+`MALLOCX_TCACHE(tc)`::
+  Use the thread-specific cache (tcache) specified by the identifier _tc_, which must have been acquired via the <<tcache.create,`tcache.create`>> mallctl. This macro does not validate that _tc_ specifies a valid identifier.
+
+`MALLOCX_TCACHE_NONE`::
+  Do not use a thread-specific cache (tcache). Unless `MALLOCX_TCACHE(tc)` or `MALLOCX_TCACHE_NONE` is specified, an automatically managed tcache will be used under many circumstances. This macro cannot be used in the same _flags_ argument as `MALLOCX_TCACHE(tc)`.
+
+`MALLOCX_ARENA(a)`::
+  Use the arena specified by the index _a_. This macro has no effect for regions that were allocated via an arena other than the one specified. This macro does not validate that _a_ specifies an arena index in the valid range.
+
+The *mallocx()* function allocates at least _size_ bytes of memory, and returns a pointer to the base address of the allocation. Behavior is undefined if _size_ is `0`.
+
+The *rallocx()* function resizes the allocation at _ptr_ to be at least _size_ bytes, and returns a pointer to the base address of the resulting allocation, which may or may not have moved from its original location. Behavior is undefined if _size_ is `0`.
+
+The *xallocx()* function resizes the allocation at _ptr_ in place to be at least _size_ bytes, and returns the real size of the allocation. If _extra_ is non-zero, an attempt is made to resize the allocation to be at least `(size + extra)` bytes, though inability to allocate the extra byte(s) will not by itself result in failure to resize. Behavior is undefined if _size_ is `0`, or if `(size + extra > SIZE_T_MAX)`.
+
+The *sallocx()* function returns the real size of the allocation at _ptr_.
+
+The *dallocx()* function causes the memory referenced by _ptr_ to be made available for future allocations.
+
+The *sdallocx()* function is an extension of *dallocx()* with a _size_ parameter to allow the caller to pass in the allocation size as an optimization. The minimum valid input size is the original requested size of the allocation, and the maximum valid input size is the corresponding value returned by *nallocx()* or *sallocx()*.
+
+The *nallocx()* function allocates no memory, but it performs the same size computation as the *mallocx()* function, and returns the real size of the allocation that would result from the equivalent *mallocx()* function call, or `0` if the inputs exceed the maximum supported size class and/or alignment. Behavior is undefined if _size_ is `0`.
+
+The *mallctl()* function provides a general interface for introspecting the memory allocator, as well as setting modifiable parameters and triggering actions. The period-separated _name_ argument specifies a location in a tree-structured namespace; see the <<mallctl_namespace>> section for documentation on the tree contents. To read a value, pass a pointer via _oldp_ to adequate space to contain the value, and a pointer to its length via _oldlenp_; otherwise pass `NULL` and `NULL`. Similarly, to write a value, pass a pointer to the value via _newp_, and its length via _newlen_; otherwise pass `NULL` and `0`.
+
+The *mallctlnametomib()* function provides a way to avoid repeated name lookups for applications that repeatedly query the same portion of the namespace, by translating a name to a "Management Information Base" (MIB) that can be passed repeatedly to *mallctlbymib()*. Upon successful return from *mallctlnametomib()*, _mibp_ contains an array of _*miblenp_ integers, where _*miblenp_ is the lesser of the number of components in _name_ and the input value of _*miblenp_. Thus it is possible to pass a _*miblenp_ that is smaller than the number of period-separated name components, which results in a partial MIB that can be used as the basis for constructing a complete MIB. For name components that are integers (e.g. the 2 in <<arenas.bin.i.size,`arenas.bin.2.size`>>), the corresponding MIB component will always be that integer. Therefore, it is legitimate to construct code like the following:
+
+[source,c]
+----
+unsigned nbins, i;
+size_t mib[4];
+size_t len, miblen;
+
+len = sizeof(nbins);
+mallctl("arenas.nbins", &nbins, &len, NULL, 0);
+
+miblen = 4;
+mallctlnametomib("arenas.bin.0.size", mib, &miblen);
+for (i = 0; i < nbins; i++) {
+	size_t bin_size;
+
+	mib[2] = i;
+	len = sizeof(bin_size);
+	mallctlbymib(mib, miblen, (void *)&bin_size, &len, NULL, 0);
+	/* Do something with bin_size... */
+}
+----
+
+The *malloc_stats_print()* function writes summary statistics via the _write_cb_ callback function pointer and _cbopaque_ data passed to _write_cb_, or *malloc_message()* if _write_cb_ is `NULL`. The statistics are presented in human-readable form unless "J" is specified as a character within the _opts_ string, in which case the statistics are presented in link:http://www.json.org/[JSON format]. This function can be called repeatedly. General information that never changes during execution can be omitted by specifying "g" as a character within the _opts_ string. Note that *malloc_stats_print()* uses the *mallctl*()* functions internally, so inconsistent statistics can be reported if multiple threads use these functions simultaneously. If `--enable-stats` is specified during configuration, "m", "d", and "a" can be specified to omit merged arena, destroyed merged arena, and per arena statistics, respectively; "b" and "l" can be specified to omit per size class statistics for bins and large objects, respectively; "x" can be specified to omit all mutex statistics; "e" can be used to omit extent statistics. Unrecognized characters are silently ignored. Note that thread caching may prevent some statistics from being completely up to date, since extra locking would be required to merge counters that track thread cache operations.
+
+The *malloc_usable_size()* function returns the usable size of the allocation pointed to by _ptr_. The return value may be larger than the size that was requested during allocation. The *malloc_usable_size()* function is not a mechanism for in-place *realloc()*; rather it is provided solely as a tool for introspection purposes. Any discrepancy between the requested allocation size and the size reported by *malloc_usable_size()* should not be depended on, since such behavior is entirely implementation-dependent.
+
+=== INTERACTIONS BETWEEN THE STANDARD AND NON-STANDARD APIS
+
+Generally speaking it is permissible to pass pointers obtained from the standard API to the non-standard API and vice versa (e.g. calling *free()* with a pointer returned by a call to *mallocx()*, calling *sdallocx()* with a pointer returned by a call to *calloc()*). There are however a few exceptions. In keeping with the C23 standard – which forbids calling *free_sized()* on a pointer returned by *aligned_alloc()*, mandating that either *free_aligned_sized()* or *free()* be used instead – using any combination of the standard and non-standard APIs in an equivalent fashion (i.e. taking a pointer which was allocated with an explicitly requested alignment and attempting to free it via an API that accepts a size hint, without also providing the alignment hint) is likewise forbidden.

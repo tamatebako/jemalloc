@@ -103,26 +103,64 @@ done
 
 # --- Extract LLVM-19 -----------------------------------------------------
 echo "[setup-ohos-ndk] extracting LLVM-19 into $PREFIX..."
-# LLVM-19 tarball layout: top-level dir varies by build.
-# Look for the llvm/ and sysroot/ subdirs after extraction.
+# LLVM-19 archive layout (per build): outer .tar.gz contains nested
+#   llvm-linux-x86_64.tar.gz   (the x86_64 clang that targets aarch64-linux-ohos)
+#   ohos-sysroot.tar.gz        (per-arch sysroots)
+# We extract the outer tar.gz, then look for nested .tar.gz files and
+# extract those too. Final layout: $PREFIX/llvm-19/{llvm, sysroot}.
 mkdir -p "$PREFIX/llvm-19-extract"
 tar -xzf "$LLVM_TARBALL" -C "$PREFIX/llvm-19-extract"
 
-# Resolve the actual llvm-19 layout: we want $PREFIX/llvm-19/{llvm,sysroot}.
+# Recursively extract any nested .tar.gz files we find.
+# This handles both single-level and multi-level nesting.
+changed=1
+while [ "$changed" = "1" ]; do
+    changed=0
+    while IFS= read -r -d '' tg; do
+        echo "[setup-ohos-ndk]   expanding nested $(basename "$tg")"
+        tar -xzf "$tg" -C "$(dirname "$tg")"
+        rm -f "$tg"
+        changed=1
+    done < <(find "$PREFIX/llvm-19-extract" -name '*.tar.gz' -print0)
+done
+
 rm -rf "$PREFIX/llvm-19"
-mkdir -p "$PREFIX/llvm-19"
-# Search for clang binary and sysroot dir, move them into place.
-CLANG_SRC=$(find "$PREFIX/llvm-19-extract" -type f -name 'clang' -path '*/bin/*' | head -1)
-SYSROOT_SRC=$(find "$PREFIX/llvm-19-extract" -type d -name 'aarch64-linux-ohos' | head -1)
+mkdir -p "$PREFIX/llvm-19/llvm" "$PREFIX/llvm-19/sysroot"
+
+# Locate clang: prefer aarch64-linux-ohos-clang (target-specific) else generic clang.
+CLANG_SRC=$(find "$PREFIX/llvm-19-extract" -type f -name 'aarch64-*-ohos-clang' -path '*/bin/*' | head -1)
+[ -z "$CLANG_SRC" ] && CLANG_SRC=$(find "$PREFIX/llvm-19-extract" -type f -name 'clang' -path '*/bin/*' | head -1)
+
+# Locate sysroot: an aarch64-linux-ohos/ directory whose usr/include/bits/ exists.
+SYSROOT_SRC=""
+while IFS= read -r -d '' cand; do
+    if [ -d "$cand/usr/include/bits" ]; then
+        SYSROOT_SRC="$cand"
+        break
+    fi
+done < <(find "$PREFIX/llvm-19-extract" -type d -name 'aarch64-linux-ohos' -print0)
+
 if [ -z "$CLANG_SRC" ] || [ -z "$SYSROOT_SRC" ]; then
-    echo "[setup-ohos-ndk] FAIL: couldn't locate clang or aarch64-linux-ohos sysroot in LLVM-19 archive" >&2
-    find "$PREFIX/llvm-19-extract" -maxdepth 3 -type d >&2 || true
+    echo "[setup-ohos-ndk] FAIL: couldn't locate clang or per-arch sysroot after recursive extract" >&2
+    echo "[setup-ohos-ndk] archive contents (depth 4):" >&2
+    find "$PREFIX/llvm-19-extract" -maxdepth 4 -type d >&2 | head -40 || true
+    echo "[setup-ohos-ndk] clang candidates:" >&2
+    find "$PREFIX/llvm-19-extract" -type f -name '*clang*' >&2 | head -10 || true
     exit 1
 fi
-LLVM_DIR=$(cd "$(dirname "$CLANG_SRC")/.." && pwd)
-SYSROOT_PARENT=$(cd "$(dirname "$SYSROOT_SRC")" && pwd)
-mv "$LLVM_DIR"     "$PREFIX/llvm-19/llvm"
-mv "$SYSROOT_SRC"  "$PREFIX/llvm-19/sysroot"
+
+# Move the discovered clang's bin/, lib/, include/ etc into $PREFIX/llvm-19/llvm/.
+LLVM_ROOT=$(cd "$(dirname "$CLANG_SRC")/.." && pwd)
+if [ "$(basename "$LLVM_ROOT")" = "llvm-linux-x86_64" ] || [ "$(basename "$LLVM_ROOT")" = "llvm" ]; then
+    rmdir "$PREFIX/llvm-19/llvm"
+    mv "$LLVM_ROOT" "$PREFIX/llvm-19/llvm"
+else
+    cp -a "$LLVM_ROOT/." "$PREFIX/llvm-19/llvm/"
+fi
+
+# Move the sysroot into place.
+rmdir "$PREFIX/llvm-19/sysroot"
+mv "$SYSROOT_SRC" "$PREFIX/llvm-19/sysroot"
 rm -rf "$PREFIX/llvm-19-extract"
 
 # --- The two-sysroots fix (CRITICAL) -------------------------------------

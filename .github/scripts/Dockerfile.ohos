@@ -1,0 +1,88 @@
+# syntax=docker/dockerfile:1.7
+# Builder image: cross-compiles jemalloc for aarch64-linux-ohos using the
+# official OHOS NDK. Produces libjemalloc.so + smoke-test binary in /out.
+#
+# Reference: https://gist.github.com/ronaldtse/78b6b610cfa00ead8fb3b8f935afaa3b
+#
+# Run from repo root:
+#   docker build -f .github/scripts/Dockerfile.ohos -t jemalloc-ohos-build .
+#   docker run --rm -v "$PWD/ohos-verify:/out" jemalloc-ohos-build
+#   docker run --rm -v "$PWD/ohos-verify:/work" -w /work \
+#     ghcr.io/hqzing/dockerharmony:latest sh -c 'LD_LIBRARY_PATH=. ./smoke-test'
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        cmake \
+        curl \
+        jq \
+        ninja-build \
+        unzip \
+        tar \
+        xz-utils \
+        file \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work
+
+# Copy jemalloc source.
+COPY . /work/jemalloc
+
+# Download + set up the OHOS NDK (~4 GB total; this layer is heavy).
+# Cached as a separate layer so source changes don't re-download.
+ARG OHOS_PREFIX=/opt/ohos
+RUN /work/jemalloc/.github/scripts/setup-ohos-ndk.sh --prefix "$OHOS_PREFIX"
+
+ENV OHOS_PREFIX=${OHOS_PREFIX}
+ENV OHOS_TOOLCHAIN=${OHOS_PREFIX}/ohos-sdk/linux/native/build/cmake/ohos.toolchain.cmake
+ENV OHOS_SYSROOT=${OHOS_PREFIX}/ohos-sdk/linux/native/sysroot
+ENV OHOS_CLANG=${OHOS_PREFIX}/llvm-19/llvm/bin/clang
+ENV OHOS_SIGNER=${OHOS_PREFIX}/ohos-sdk/linux/toolchains/lib/binary-sign-tool
+
+# Cross-compile jemalloc.
+RUN --mount=type=cache,target=/root/.cache \
+    cmake -S /work/jemalloc -B /work/build-ohos \
+        -DCMAKE_TOOLCHAIN_FILE="$OHOS_TOOLCHAIN" \
+        -DOHOS_ARCH=arm64-v8a \
+        -DOHOS_PLATFORM=OHOS \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DJEMALLOC_BUILD_SHARED=ON \
+        -DJEMALLOC_BUILD_STATIC=ON \
+        -DJEMALLOC_ENABLE_STATS=ON \
+        -DJEMALLOC_ENABLE_PROF=OFF \
+        -DJEMALLOC_ENABLE_DOC=OFF \
+        -DBUILD_TESTING=OFF \
+        -G Ninja \
+    && cmake --build /work/build-ohos -j"$(nproc)"
+
+# Verify the resulting .so is an arm64 ELF.
+RUN file /work/build-ohos/libjemalloc.so | tee /dev/stderr | grep -q 'ELF 64-bit LSB .* ARM aarch64'
+
+# Code-sign the .so (required for OHOS .so loading at runtime).
+RUN "$OHOS_SIGNER" sign -selfSign 1 \
+        -inFile /work/build-ohos/libjemalloc.so \
+        -outFile /work/build-ohos/libjemalloc.so
+
+# Build the smoke-test binary using the NDK clang.
+RUN "$OHOS_CLANG" --target=aarch64-linux-ohos --sysroot="$OHOS_SYSROOT" \
+        -O2 -static-libstdc++ \
+        -I /work/build-ohos/include \
+        -L /work/build-ohos \
+        -Wl,-rpath='$ORIGIN' \
+        -o /work/build-ohos/smoke-test \
+        /work/jemalloc/.github/scripts/ohos-smoke-test.c \
+        -ljemalloc -lpthread -ldl
+
+RUN file /work/build-ohos/smoke-test | tee /dev/stderr | grep -q 'ELF 64-bit LSB .* ARM aarch64'
+
+# Stage the artifacts for verification.
+RUN mkdir -p /out \
+    && cp -a /work/build-ohos/libjemalloc.so     /out/ \
+    && cp -a /work/build-ohos/libjemalloc.so.*   /out/ 2>/dev/null || true \
+    && cp -a /work/build-ohos/smoke-test         /out/
+
+# Default: just print the artifacts. Use dockerharmony to actually run them.
+CMD ["ls", "-la", "/out"]

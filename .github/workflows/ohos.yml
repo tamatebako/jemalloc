@@ -1,0 +1,143 @@
+name: OHOS
+
+# Cross-compile jemalloc for aarch64-linux-ohos (HarmonyOS PC) using the
+# official OHOS NDK, then verify the resulting libjemalloc.so in real OHOS
+# userland (dockerharmony image).
+#
+# Reference for the toolchain setup:
+#   https://gist.github.com/ronaldtse/78b6b610cfa00ead8fb3b8f935afaa3b
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cmake/platform/OHOS.cmake'
+      - 'cmake/platform/DetectPlatform.cmake'
+      - 'cmake/platform/Unix.cmake'
+      - 'CMakeLists.txt'
+      - '.github/scripts/setup-ohos-ndk.sh'
+      - '.github/scripts/ohos-smoke-test.c'
+      - '.github/scripts/Dockerfile.ohos'
+      - '.github/workflows/ohos.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'cmake/platform/OHOS.cmake'
+      - 'cmake/platform/DetectPlatform.cmake'
+      - 'cmake/platform/Unix.cmake'
+      - 'CMakeLists.txt'
+      - '.github/scripts/setup-ohos-ndk.sh'
+      - '.github/scripts/ohos-smoke-test.c'
+      - '.github/scripts/Dockerfile.ohos'
+      - '.github/workflows/ohos.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cross-compile-and-verify:
+    name: aarch64-linux-ohos cross-compile + dockerharmony smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout jemalloc
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+              build-essential cmake ninja-build curl jq unzip file \
+              ca-certificates
+          # Docker is already on the ubuntu-latest runner.
+
+      - name: Cache OHOS NDK (~4 GB)
+        id: cache-ndk
+        uses: actions/cache@v4
+        with:
+          path: /opt/ohos
+          key: ohos-ndk-${{ hashFiles('.github/scripts/setup-ohos-ndk.sh') }}
+
+      - name: Setup OHOS NDK (if cache miss)
+        if: steps.cache-ndk.outputs.cache-hit != 'true'
+        run: |
+          ./.github/scripts/setup-ohos-ndk.sh --prefix /opt/ohos
+
+      - name: Cross-compile jemalloc
+        run: |
+          cmake -S . -B build-ohos \
+            -DCMAKE_TOOLCHAIN_FILE=/opt/ohos/ohos-sdk/linux/native/build/cmake/ohos.toolchain.cmake \
+            -DOHOS_ARCH=arm64-v8a \
+            -DOHOS_PLATFORM=OHOS \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DJEMALLOC_BUILD_SHARED=ON \
+            -DJEMALLOC_BUILD_STATIC=ON \
+            -DJEMALLOC_ENABLE_STATS=ON \
+            -DJEMALLOC_ENABLE_PROF=OFF \
+            -DJEMALLOC_ENABLE_DOC=OFF \
+            -DBUILD_TESTING=OFF \
+            -G Ninja
+          cmake --build build-ohos -j"$(nproc)"
+
+      - name: Verify libjemalloc.so is an arm64 ELF
+        run: |
+          set -e
+          file build-ohos/libjemalloc.so
+          file build-ohos/libjemalloc.so | grep -q 'ELF 64-bit LSB .* ARM aarch64'
+
+      - name: Code-sign libjemalloc.so (self-signed)
+        run: |
+          /opt/ohos/ohos-sdk/linux/toolchains/lib/binary-sign-tool sign \
+            -selfSign 1 \
+            -inFile build-ohos/libjemalloc.so \
+            -outFile build-ohos/libjemalloc.so
+
+      - name: Build smoke-test binary
+        run: |
+          /opt/ohos/llvm-19/llvm/bin/clang \
+            --target=aarch64-linux-ohos \
+            --sysroot=/opt/ohos/ohos-sdk/linux/native/sysroot \
+            -O2 \
+            -I build-ohos/include \
+            -L build-ohos \
+            -Wl,-rpath='$ORIGIN' \
+            -o build-ohos/smoke-test \
+            .github/scripts/ohos-smoke-test.c \
+            -ljemalloc -lpthread -ldl
+          file build-ohos/smoke-test
+          file build-ohos/smoke-test | grep -q 'ELF 64-bit LSB .* ARM aarch64'
+
+      - name: Stage verification bundle
+        run: |
+          mkdir -p ohos-verify
+          cp -a build-ohos/libjemalloc.so     ohos-verify/
+          cp -a build-ohos/libjemalloc.so.*   ohos-verify/ 2>/dev/null || true
+          cp -a build-ohos/smoke-test         ohos-verify/
+
+      - name: Setup binfmt for arm64 (qemu emulation on x86_64 runner)
+        run: |
+          docker run --privileged --rm tonistiigi/binfmt --install arm64
+
+      - name: Run smoke-test in dockerharmony (real OHOS userland)
+        run: |
+          docker run --rm \
+            -v "$PWD/ohos-verify:/work" \
+            -w /work \
+            ghcr.io/hqzing/dockerharmony:latest \
+            sh -c 'LD_LIBRARY_PATH=. ./smoke-test'
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jemalloc-ohos-aarch64
+          path: ohos-verify/
+          if-no-files-found: error

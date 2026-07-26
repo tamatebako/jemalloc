@@ -1,0 +1,58 @@
+# Don't send untracked/irrelevant files to the Docker build context.
+# This keeps `docker build` fast and avoids disk pressure.
+
+# Version control
+.git
+.gitignore
+.gitattributes
+.github/workflows
+.github/scripts/__pycache__
+.git-blame-ignore-revs
+
+# Editor / IDE state
+.vscode
+.kilocode
+.idea
+*.swp
+*.swo
+
+# Local working directories (not part of the project)
+old-build-system
+old-docs
+install
+manpage_comparison
+doc/manpage_comparison
+doc/__pycache__
+
+# Generated outputs / scratch files
+build
+build-*
+*.o
+*.obj
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+doc/jemalloc.3.adoc
+doc/jemalloc.html
+doc/jemalloc.3
+
+# Temporary notes / TODOs
+TODO*
+CONTINUE-NEXT-STEPS.md
+PROFILING_BENCHMARK_UPDATE.txt
+README_ARMV85_CORRECTED.txt
+README_ARMV9_UPDATE.txt
+TESTING_RELEASE.adoc
+2819.patch
+doc/MIGRATION_SUMMARY.md
+doc/Makefile
+doc/QUICK_TEST.sh
+doc/README_MANPAGE_BUILD.adoc
+doc/compare_manpages.sh
+
+# OS / filesystem noise
+.DS_Store
+**/.DS_Store

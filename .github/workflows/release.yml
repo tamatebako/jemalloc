@@ -30,6 +30,7 @@ on:
 jobs:
   validate-and-bump:
     name: Validate and bump version
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.get_version.outputs.version }}
@@ -110,6 +111,7 @@ jobs:
 
   create-pr:
     name: Create release PR
+    if: github.event_name == 'workflow_dispatch'
     needs: validate-and-bump
     runs-on: ubuntu-24.04
 

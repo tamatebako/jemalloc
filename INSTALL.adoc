@@ -29,9 +29,8 @@ You can uninstall the installed build artifacts like this:
 make uninstall
 ----
 
-NOTE: `autoconf` needs to be installed. Documentation is built by the default
-target only when `xsltproc` is available. Build will warn but not stop if the
-dependency is missing.
+NOTE: `autoconf` needs to be installed. Documentation is built only when
+`JEMALLOC_ENABLE_DOC=ON` is passed to CMake and `asciidoctor` is available.
 
 == Building with CMake
 
@@ -86,7 +85,7 @@ All jemalloc features can be configured via CMake options:
 
 |`JEMALLOC_ENABLE_DOC`
 |`OFF`
-|Build documentation (requires xsltproc)
+|Build documentation (requires asciidoctor)
 
 |`CMAKE_INSTALL_PREFIX`
 |`/usr/local`

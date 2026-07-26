@@ -1,18 +1,40 @@
 * 5.6.0 (July 26, 2026)
 
-  This release [describe the release here].
+  Tebako fork release focused on platform expansion, documentation
+  modernization, and release-automation hardening.
 
   New features:
-  - [Add new features here]
+  - Added HarmonyOS PC (OHOS arm64) as a supported target platform,
+    treated as Linux-compatible (musl libc + Linux kernel syscalls).
+    CMake detects CMAKE_SYSTEM_NAME=OHOS and routes to a new
+    cmake/platform/OHOS.cmake; the ARM64+musl -mno-outline-atomics
+    fix from issue #2782 is applied automatically.
 
-  Portability improvements:
-  - [Add portability improvements here]
+  Documentation:
+  - Migrated the jemalloc(3) manpage from DocBook XML to AsciiDoc.
+    The DocBook XML source and three XSL stylesheets were removed;
+    a new cmake/modules/FindAsciidoctor.cmake + doc/CMakeLists.txt
+    build the manpage via asciidoctor when -DJEMALLOC_ENABLE_DOC=ON.
+    All semantic markup from the XML is preserved (citerefentry,
+    funcsynopsis, programlisting, CALS tables with rowspan).
+  - Added a "Supported platforms" section near the top of README.adoc
+    listing all six platform families.
 
-  Bug fixes:
-  - [Add bug fixes here]
+  Build system:
+  - Replaced the docbook-xsl toolchain with asciidoctor for manpage
+    generation. JEMALLOC_ENABLE_DOC now requires asciidoctor (not
+    xsltproc).
+  - Cleaned up stale /doc/{html.xsl, manpages.xsl, jemalloc.xml}
+    entries from .gitignore.
 
-  Optimizations:
-  - [Add optimizations here]
+  Release automation:
+  - Fixed release.yml: replaced peter-evans/create-pull-request
+    (which silently reset the bump branch to match main) with a
+    direct `gh pr create` against the existing release/vX.Y.Z
+    branch.
+  - Added a pull_request trigger so the tag-and-release job can
+    actually fire when a release PR is merged.
+
 
 Following are change highlights associated with official releases.  Important
 bug fixes are all mentioned, but some internal enhancements are omitted here for

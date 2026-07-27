@@ -1,3 +1,19 @@
+* 5.6.1 (July 27, 2026)
+
+  This release [describe the release here].
+
+  New features:
+  - [Add new features here]
+
+  Portability improvements:
+  - [Add portability improvements here]
+
+  Bug fixes:
+  - [Add bug fixes here]
+
+  Optimizations:
+  - [Add optimizations here]
+
 * 5.6.0 (July 26, 2026) - tagged
 
   Tebako fork release focused on platform expansion, documentation

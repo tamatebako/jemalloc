@@ -13,6 +13,10 @@
 #include <stdlib.h>
 
 int main(void) {
+    // Unbuffer stdout so we see how far we get before any crash.
+    setvbuf(stdout, NULL, _IONBF, 0);
+    printf("smoke-test: starting\n");
+
     // Test 1: malloc + write + free
     void *p = je_malloc(1024);
     if (!p) {
@@ -21,6 +25,7 @@ int main(void) {
     }
     memset(p, 0x42, 1024);
     je_free(p);
+    printf("smoke-test: malloc/free OK\n");
 
     // Test 2: calloc zeroes memory
     void *c = je_calloc(64, 16);

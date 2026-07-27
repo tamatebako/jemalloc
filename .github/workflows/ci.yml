@@ -795,12 +795,17 @@ jobs:
           ctest --output-on-failure
 
   # Level 2: RISC-V configure flags (runs after smoke tests succeed)
-  # NOTE: QEMU emulation is significantly slower - tests take longer than native
+  # NOTE: QEMU emulation is significantly slower - tests take longer than native.
+  # continue-on-error: these jobs pull docker images (tonistiigi/binfmt via
+  # uraimo/run-on-arch-action) and Docker Hub timeouts occasionally cause
+  # spurious failures. The Level-1 `riscv` smoke job already gates merging;
+  # these flag-combo jobs are bonus coverage.
   riscv-configure-flags:
     name: RISC-V flags - ${{ matrix.flags }}
     runs-on: ubuntu-latest
     needs: [riscv, test-cmake-builds, test-vcpkg-integration]
     timeout-minutes: 90
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:

@@ -337,7 +337,8 @@ jobs:
           cp -a build-ohos/libjemalloc.so  ohos-verify/
           cp -a build-ohos/smoke-test      ohos-verify/
           docker run --privileged --rm tonistiigi/binfmt --install arm64
-          docker run --rm -v "$PWD/ohos-verify:/work" -w /work \
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD/ohos-verify:/work" -w /work \
             ghcr.io/hqzing/dockerharmony:latest \
             sh -c 'LD_LIBRARY_PATH=. ./smoke-test'
 

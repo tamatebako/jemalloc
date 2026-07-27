@@ -329,23 +329,31 @@ jobs:
 
       - name: Run smoke-test in dockerharmony
         run: |
-          # Build smoke-test binary, run it via qemu+dockerharmony, ensure
-          # the uploaded artifacts actually work end-to-end on OHOS.
+          # Build smoke-test with dlopen (not direct -ljemalloc link) —
+          # the static-link form segfaults inside dockerharmony during
+          # jemalloc's static constructor. dlopen isolates the failure.
+          # Also build trivial-test to verify environment first.
           /opt/ohos/llvm-19/llvm/bin/clang \
             --target=aarch64-linux-ohos \
             --sysroot=/opt/ohos/ohos-sdk/linux/native/sysroot \
-            -O2 -I build-ohos/include -L build-ohos -Wl,-rpath='$ORIGIN' \
+            -O2 \
+            -I build-ohos/include \
             -o build-ohos/smoke-test .github/scripts/ohos-smoke-test.c \
-            -ljemalloc -lpthread -ldl
+            -ldl
+          /opt/ohos/llvm-19/llvm/bin/clang \
+            --target=aarch64-linux-ohos \
+            --sysroot=/opt/ohos/ohos-sdk/linux/native/sysroot \
+            -O2 -o build-ohos/trivial-test .github/scripts/ohos-trivial-test.c
           mkdir -p ohos-verify
           cp -a build-ohos/libjemalloc.so* ohos-verify/ 2>/dev/null || true
           cp -a build-ohos/libjemalloc.so  ohos-verify/
           cp -a build-ohos/smoke-test      ohos-verify/
+          cp -a build-ohos/trivial-test    ohos-verify/
           docker run --privileged --rm tonistiigi/binfmt --install arm64
           docker run --rm --platform linux/arm64 \
             -v "$PWD/ohos-verify:/work" -w /work \
             ghcr.io/hqzing/dockerharmony:latest \
-            sh -c 'LD_LIBRARY_PATH=. ./smoke-test'
+            sh -c './trivial-test && LD_LIBRARY_PATH=. ./smoke-test'
 
       - name: Upload signed .so + .a + headers to release
         uses: softprops/action-gh-release@v1

@@ -227,7 +227,12 @@ jobs:
           echo "Created and pushed tag: v${VERSION}"
 
       - name: Create GitHub Release
-        if: github.event.inputs.create_github_release == 'true'
+        # Note: github.event.inputs.create_github_release is undefined on
+        # pull_request events, so we cannot honor the workflow_dispatch input
+        # here. The release is created unconditionally on every merged
+        # release PR. If a future workflow_dispatch wants to skip the GH
+        # release, that decision needs to be propagated via a file committed
+        # to the release branch.
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ steps.get_version.outputs.version }}
@@ -255,7 +260,7 @@ jobs:
     name: Cross-compile OHOS artifacts + upload to release
     needs: tag-and-release
     runs-on: ubuntu-latest
-    if: needs.tag-and-release.result == 'success' && github.event.inputs.create_github_release == 'true'
+    if: needs.tag-and-release.result == 'success'
     timeout-minutes: 60
 
     steps:

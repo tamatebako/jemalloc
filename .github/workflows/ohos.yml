@@ -94,6 +94,12 @@ jobs:
           # is a dev symlink that 'file' reports as just "symbolic link to...".
           file -L build-ohos/libjemalloc.so
           file -L build-ohos/libjemalloc.so | grep -q 'ELF 64-bit LSB .* ARM aarch64'
+          # Dump dynamic symbol table — confirms which je_* are actually exported.
+          echo "--- dynamic symbols (je_*) ---"
+          ( cd build-ohos && readelf --dyn-syms libjemalloc.so.5 2>/dev/null | grep ' je_' ) || \
+            ( cd build-ohos && nm -D --defined-only libjemalloc.so.5 2>/dev/null | grep ' je_' ) || true
+          echo "--- summary ---"
+          ( cd build-ohos && readelf --dyn-syms libjemalloc.so.5 2>/dev/null | grep -c ' je_' ) || true
 
       - name: Code-sign libjemalloc.so (self-signed)
         run: |

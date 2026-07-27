@@ -104,20 +104,18 @@ jobs:
 
       - name: Build smoke-test binary
         run: |
+          # Smoke-test uses dlopen() so it must NOT link -ljemalloc directly.
           /opt/ohos/llvm-19/llvm/bin/clang \
             --target=aarch64-linux-ohos \
             --sysroot=/opt/ohos/ohos-sdk/linux/native/sysroot \
             -O2 \
             -I build-ohos/include \
-            -L build-ohos \
-            -Wl,-rpath='$ORIGIN' \
             -o build-ohos/smoke-test \
             .github/scripts/ohos-smoke-test.c \
-            -ljemalloc -lpthread -ldl
+            -ldl
           file build-ohos/smoke-test
           file build-ohos/smoke-test | grep -q 'ELF 64-bit LSB .* ARM aarch64'
-          # Also build a trivial test that doesn't link jemalloc, to isolate
-          # whether crashes come from the environment or from jemalloc itself.
+          # Trivial test isolates environment from jemalloc issues.
           /opt/ohos/llvm-19/llvm/bin/clang \
             --target=aarch64-linux-ohos \
             --sysroot=/opt/ohos/ohos-sdk/linux/native/sysroot \

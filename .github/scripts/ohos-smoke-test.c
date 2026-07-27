@@ -29,13 +29,25 @@ int main(void) {
     }
     printf("step 2: dlopen succeeded\n");
 
+    // jemalloc's public symbols may be exported with or without the "je_"
+    // prefix. On Linux/OHOS ELF the default is NO prefix (so jemalloc can
+    // override libc malloc via LD_PRELOAD); on macOS/Windows the default
+    // keeps the je_ prefix to avoid conflicts. Try both.
     malloc_t  je_malloc  = (malloc_t)  dlsym(h, "je_malloc");
+    if (!je_malloc)  je_malloc  = (malloc_t)  dlsym(h, "malloc");
     free_t    je_free    = (free_t)    dlsym(h, "je_free");
+    if (!je_free)    je_free    = (free_t)    dlsym(h, "free");
     calloc_t  je_calloc  = (calloc_t)  dlsym(h, "je_calloc");
+    if (!je_calloc)  je_calloc  = (calloc_t)  dlsym(h, "calloc");
     realloc_t je_realloc = (realloc_t) dlsym(h, "je_realloc");
+    if (!je_realloc) je_realloc = (realloc_t) dlsym(h, "realloc");
     malloc_usable_size_t je_malloc_usable_size =
         (malloc_usable_size_t) dlsym(h, "je_malloc_usable_size");
+    if (!je_malloc_usable_size)
+        je_malloc_usable_size =
+            (malloc_usable_size_t) dlsym(h, "malloc_usable_size");
     mallctl_t je_mallctl = (mallctl_t) dlsym(h, "je_mallctl");
+    if (!je_mallctl) je_mallctl = (mallctl_t) dlsym(h, "mallctl");
 
     if (!je_malloc || !je_free || !je_calloc || !je_realloc
         || !je_malloc_usable_size || !je_mallctl) {
